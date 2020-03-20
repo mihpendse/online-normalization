@@ -29,8 +29,8 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
     norm_kwargs = {'mode': args.norm_mode,
                    'alpha_fwd': args.afwd,
                    'alpha_bkw': args.abkw,
-                   'b_size': args.batch_size,
-                   'layer_scaling': not args.rm_layer_scaling,
+                   'batch_size': args.batch_size,
+                   'ecm': args.ecm,
                    'gn_num_groups': args.gn_num_groups}
     model_kwargs = {'num_classes': num_classes,
                     'norm_layer': norm_layer,
@@ -62,10 +62,6 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
                                 args.lr, momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
-    scheduler = MultiStepLR(optimizer,
-                            milestones=args.lr_milestones,
-                            gamma=args.lr_multiplier)
-
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -80,6 +76,11 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
+    scheduler = MultiStepLR(optimizer,
+                            milestones=args.lr_milestones,
+                            gamma=args.lr_multiplier,
+                            last_epoch=args.start_epoch - 1)
+
     cudnn.benchmark = False if args.seed else True
 
     if args.evaluate:
@@ -87,8 +88,6 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
         return
 
     for epoch in range(args.start_epoch, args.epochs):
-        scheduler.step(epoch)
-
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, device, args)
 
@@ -106,6 +105,8 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
             'best_acc1': best_acc1,
             'optimizer' : optimizer.state_dict(),
         }, is_best, args)
+
+        scheduler.step()
 
 
 def train(train_loader, model, criterion, optimizer, epoch, device, args):
@@ -133,7 +134,7 @@ def train(train_loader, model, criterion, optimizer, epoch, device, args):
         loss = criterion(output, target)
 
         # measure accuracy and record loss
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        acc1, acc5, = accuracy(output, target, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
         top1.update(acc1[0], input.size(0))
         top5.update(acc5[0], input.size(0))
@@ -173,7 +174,7 @@ def validate(val_loader, model, criterion, device, args):
             loss = criterion(output, target)
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            acc1, acc5, = accuracy(output, target, topk=(1, 5))
             losses.update(loss.item(), input.size(0))
             top1.update(acc1[0], input.size(0))
             top5.update(acc5[0], input.size(0))

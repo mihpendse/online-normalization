@@ -29,9 +29,8 @@ def main_worker(train_loader, val_loader, args):
     norm_kwargs = {'mode': args.norm_mode,
                    'alpha_fwd': args.afwd,
                    'alpha_bkw': args.abkw,
-                   'b_size': args.batch_size,
-                   'layer_scaling': not args.rm_layer_scaling
-                   }
+                   'batch_size': args.batch_size,
+                   'ecm': args.ecm}
 
     print("=> creating model...")
     model = UNet(args.classes,
@@ -42,10 +41,6 @@ def main_worker(train_loader, val_loader, args):
     optimizer = optim.SGD(model.parameters(), lr=args.lr,
                           momentum=args.momentum,
                           weight_decay=args.weight_decay)
-
-    print("=> setting up learning rate scheduler...")
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_milestone,
-                                    gamma=args.lr_multiplier)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -61,6 +56,11 @@ def main_worker(train_loader, val_loader, args):
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
+    print("=> setting up learning rate scheduler...")
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_milestone,
+                                    gamma=args.lr_multiplier,
+                                    last_epoch=args.start_epoch - 1)
+
     cudnn.benchmark = False if args.seed else True
 
     if args.evaluate:
@@ -68,8 +68,6 @@ def main_worker(train_loader, val_loader, args):
         return
 
     for epoch in range(args.start_epoch, args.epochs):
-        scheduler.step(epoch)
-
         # train for one epoch
         train_loss = train(train_loader, model, optimizer, epoch, device, args)
 
@@ -86,6 +84,8 @@ def main_worker(train_loader, val_loader, args):
             'best_loss': best_loss,
             'optimizer' : optimizer.state_dict(),
         }, is_best, args)
+
+        scheduler.step()
 
     print('best val loss: {:4f}'.format(best_loss))
 

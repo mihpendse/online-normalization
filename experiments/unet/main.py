@@ -15,7 +15,7 @@ from utils import main_worker
 
 
 parser = argparse.ArgumentParser(description='PyTorch UNet Model Training')
-parser.add_argument('--model_dir', type=str, default='./model_dir',
+parser.add_argument('--model-dir', type=str, default='./model_dir',
                     help='dir to which model is saved')
 parser.add_argument('--epochs', default=40, type=int, metavar='N',
                     help='number of total epochs to run (default: 40)')
@@ -27,10 +27,10 @@ parser.add_argument('-b', '--batch-size', default=25, type=int,
 parser.add_argument('--lr', '--learning-rate', default=0.04, type=float,
                     metavar='LR', help='initial learning rate (default: 0.04)',
                     dest='lr')
-parser.add_argument('--lr_milestone', default=25, type=int,
+parser.add_argument('--lr-milestone', default=25, type=int,
                     help='epoch at which we take a learning-rate step '
                          '(default: 25)')
-parser.add_argument('--lr_multiplier', default=0.1, type=float, metavar='M',
+parser.add_argument('--lr-multiplier', default=0.1, type=float, metavar='M',
                     help='lr multiplier at lr_milestones (default: 0.1)')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='optimizer momentum (default: 0.9)')
@@ -45,22 +45,28 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training')
-parser.add_argument('--norm_mode', default='batch', type=str, metavar='NORM',
-                    help='select normalization type. options: "batch" | '
-                         '"online" | "none". (default: batch)')
-parser.add_argument('--afwd', '--decay_factor_forward', default=63 / 64.,
+norm_choices=['batch', 'online', 'none']
+parser.add_argument('--norm-mode', default='batch', type=str,
+                    metavar='NORM', choices=norm_choices,
+                    help='norm choices: ' +
+                        ' | '.join(norm_choices) +
+                        ' (default: batch)')
+parser.add_argument('--afwd', '--decay-factor-forward', default=63 / 64.,
                     type=float, metavar='AFWD', dest='afwd',
                     help='forward decay factor which sets momentum process '
                          'hyperparameter when using online normalization '
                          '(default: 63 / 64)')
-parser.add_argument('--abkw', '--hdecay_factor_backward', default=1 / 2.,
+parser.add_argument('--abkw', '--hdecay-factor-backward', default=1 / 2.,
                     type=float, metavar='ABKW', dest='abkw',
                     help='backward decay factor which sets control process '
                          'hyperparameter when using online normalization '
                          '(default: 1 / 2)')
-parser.add_argument('--rm_layer_scaling', action='store_true',
-                    help='remove layer scaling in online normalization '
-                         '(default: False)')
+ecm_choices=['la', 'ac', 'none']
+parser.add_argument('--ecm', default='ls', type=str,
+                    metavar='ECM', choices=ecm_choices,
+                    help='Online Norm ErrorCheckingMechanism choices: ' +
+                        ' | '.join(ecm_choices) +
+                        ' (default: ls)')
 parser.add_argument('--classes', type=int, default=6, metavar='N',
                     help='classes (default: 6)')
 parser.add_argument('--t_size', type=int, default=2000, metavar='N',

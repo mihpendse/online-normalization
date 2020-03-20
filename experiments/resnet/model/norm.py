@@ -63,7 +63,7 @@ def norm(num_features, mode='batch', eps=1e-05, momentum=0.1, affine=True,
     Args:
         num_features: :math:`C` from an expected input of size
             :math:`(N, C, H, W)`
-        mode: Option to select normalization method (Default: None)
+        mode: Option to select normalization method (Default: batch)
         eps: a value added to the denominator for numerical stability.
             Default: 1e-5
         momentum: the value used for the running_mean and running_var

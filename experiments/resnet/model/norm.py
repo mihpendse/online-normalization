@@ -33,7 +33,7 @@ class LayerNorm2d(nn.Module):
         self.bias = None
 
     def forward(self, x):
-        if self.weight is None and self.bias is None and self.affine:
+        if self.affine and self.weight is None and self.bias is None:
             self.init_affine(x)
         return nn.functional.layer_norm(x, x.shape[1:],
                                         weight=self.weight, bias=self.bias,
@@ -45,7 +45,7 @@ class LayerNorm2d(nn.Module):
         # option, Layer Normalization applies per-element scale and bias
         _, C, H, W = x.shape
         s = [C, H, W]
-        if self.weight:
+        if self.affine:
             self.weight = nn.Parameter(torch.ones(s), requires_grad=True)
             self.bias = nn.Parameter(torch.zeros(s), requires_grad=True)
         else:

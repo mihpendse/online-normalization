@@ -73,7 +73,7 @@ def main_worker(train_loader, val_loader, ntokens, args, device):
         if epoch: scheduler.step()
 
         # train for one epoch
-        ppl = train(train_loader, model,
+        train(train_loader, model,
                     criterion, optimizer, epoch, device, args, ntokens)
 
         # evaluate on validation set

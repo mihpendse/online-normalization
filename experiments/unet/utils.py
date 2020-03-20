@@ -71,7 +71,7 @@ def main_worker(train_loader, val_loader, args):
         if epoch: scheduler.step()
 
         # train for one epoch
-        _ = train(train_loader, model, optimizer, epoch, device, args)
+        train(train_loader, model, optimizer, epoch, device, args)
 
         # evaluate on validation set
         eval_loss = validate(val_loader, model, epoch, device, args)

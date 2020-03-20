@@ -62,6 +62,10 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
                                 args.lr, momentum=args.momentum,
                                 weight_decay=args.weight_decay)
 
+    scheduler = MultiStepLR(optimizer,
+                            milestones=args.lr_milestones,
+                            gamma=args.lr_multiplier)
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -71,15 +75,11 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
             best_acc1 = checkpoint['best_acc1']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-
-    scheduler = MultiStepLR(optimizer,
-                            milestones=args.lr_milestones,
-                            gamma=args.lr_multiplier,
-                            last_epoch=args.start_epoch - 1)
 
     cudnn.benchmark = False if args.seed else True
 
@@ -88,6 +88,8 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
         return
 
     for epoch in range(args.start_epoch, args.epochs):
+        if epoch: scheduler.step()
+
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, device, args)
 
@@ -103,10 +105,9 @@ def main_worker(train_loader, val_loader, num_classes, args, cifar=False):
             'arch': args.arch,
             'state_dict': model.state_dict(),
             'best_acc1': best_acc1,
-            'optimizer' : optimizer.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
         }, is_best, args)
-
-        scheduler.step()
 
 
 def train(train_loader, model, criterion, optimizer, epoch, device, args):

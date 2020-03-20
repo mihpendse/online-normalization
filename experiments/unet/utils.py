@@ -42,6 +42,10 @@ def main_worker(train_loader, val_loader, args):
                           momentum=args.momentum,
                           weight_decay=args.weight_decay)
 
+    print("=> setting up learning rate scheduler...")
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_milestone,
+                                    gamma=args.lr_multiplier)
+
     # optionally resume from a checkpoint
     if args.resume:
         if os.path.isfile(args.resume):
@@ -51,25 +55,23 @@ def main_worker(train_loader, val_loader, args):
             best_loss = checkpoint['best_loss']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
+            scheduler.load_state_dict(checkpoint['scheduler'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    print("=> setting up learning rate scheduler...")
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.lr_milestone,
-                                    gamma=args.lr_multiplier,
-                                    last_epoch=args.start_epoch - 1)
-
     cudnn.benchmark = False if args.seed else True
 
     if args.evaluate:
-        validate(val_loader, model, criterion, device, args)
+        validate(val_loader, model, args.start_epoch, device, args)
         return
 
     for epoch in range(args.start_epoch, args.epochs):
+        if epoch: scheduler.step()
+
         # train for one epoch
-        train_loss = train(train_loader, model, optimizer, epoch, device, args)
+        _ = train(train_loader, model, optimizer, epoch, device, args)
 
         # evaluate on validation set
         eval_loss = validate(val_loader, model, epoch, device, args)
@@ -82,17 +84,21 @@ def main_worker(train_loader, val_loader, args):
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
             'best_loss': best_loss,
-            'optimizer' : optimizer.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'scheduler': scheduler.state_dict(),
         }, is_best, args)
-
-        scheduler.step()
 
     print('best val loss: {:4f}'.format(best_loss))
 
     # load best model weights
-    (model, optimizer, best_loss,
-        epoch_start) = load_model(os.path.join(args.model_dir, 'best_model.pt'),
-                                  model, optimizer)
+    model_best_file = os.path.join(args.model_dir, 'model_best.pth.tar')
+    if os.path.isfile(model_best_file):
+        print("=> loading checkpoint '{}'".format(model_best_file))
+        checkpoint = torch.load(model_best_file)
+        model.load_state_dict(checkpoint['state_dict'])
+        print("=> loaded checkpoint '{}' (epoch {})"
+                .format(model_best_file, checkpoint['epoch']))
+
     return model
 
 

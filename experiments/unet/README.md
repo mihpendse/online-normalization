@@ -44,9 +44,9 @@ python main.py --norm_mode online
 
 The following bash commands will reproduce the experimental results:
 ```bash
-python main.py --model_dir /path/to/cache/model --norm_mode online --lr 0.04 --afwd 0.984375 --abkw 0.5
-python main.py --model_dir /path/to/cache/model --norm_mode batch --lr 0.04
-python main.py --model_dir /path/to/cache/model --norm_mode none --lr 0.6
+python main.py --model-dir /path/to/cache/model --norm-mode online --lr 0.04 --afwd 0.984375 --abkw 0.5
+python main.py --model-dir /path/to/cache/model --norm-mode batch --lr 0.04
+python main.py --model-dir /path/to/cache/model --norm-mode none --lr 0.6
 ```
 For our experimentation, each setting is run 50 times. 
 The median of 50 runs is reported.
@@ -59,7 +59,7 @@ usage: main.py [-h] [--model-dir MODEL_DIR] [--epochs N] [--start-epoch N]
                [--lr-multiplier M] [--momentum M] [--wd W] [-p N]
                [--resume PATH] [-e] [--seed SEED] [--norm-mode NORM]
                [--afwd AFWD] [--abkw ABKW] [--ecm ECM] [--classes N]
-               [--t_size N] [--v_size N] [--im_size N]
+               [--t-size N] [--v-size N] [--im-size N]
 
 PyTorch UNet Model Training
 
@@ -95,7 +95,7 @@ optional arguments:
   --ecm ECM             Online Norm ErrorCheckingMechanism choices: la | ac |
                         none (default: ls)
   --classes N           classes (default: 6)
-  --t_size N            train set size (default: 2000)
-  --v_size N            val set size (default: 200)
-  --im_size N           image height and width (default: 192)
+  --t-size N            train set size (default: 2000)
+  --v-size N            val set size (default: 200)
+  --im-size N           image height and width (default: 192)
 ```

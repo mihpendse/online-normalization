@@ -38,25 +38,25 @@ The following bash commands will reproduce the experimental results
 ### CIFAR
 
 ```bash
-python cifar10_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode online --afwd 0.9990234375 --abkw 0.9921875
-python cifar10_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode batch
-python cifar10_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode layer
-python cifar10_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode instance
-python cifar10_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode group
+python cifar10_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode online --afwd 0.9990234375 --abkw 0.9921875
+python cifar10_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode batch
+python cifar10_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode layer
+python cifar10_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode instance
+python cifar10_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode group
 
-python cifar100_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode online --afwd 0.998046875 --abkw 0.9375
-python cifar100_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode batch
-python cifar100_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode layer
-python cifar100_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode instance
-python cifar100_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode group
+python cifar100_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode online --afwd 0.998046875 --abkw 0.9375
+python cifar100_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode batch
+python cifar100_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode layer
+python cifar100_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode instance
+python cifar100_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode group
 ```
 For our experimentation, each setting is run 5 times. The median of 5 runs is reported.
 
 ### ImageNet
 
 ```bash
-python imagenet_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode online --afwd 0.999 --abkw 0.99
-python imagenet_main.py /path/to/data --model_dir /path/to/cache/model --norm_mode batch
+python imagenet_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode online --afwd 0.999 --abkw 0.99
+python imagenet_main.py /path/to/data --model-dir /path/to/cache/model --norm-mode batch
 ```
 For our experimentation, each setting is run 1 time.
 

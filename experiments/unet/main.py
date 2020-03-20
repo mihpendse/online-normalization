@@ -5,7 +5,10 @@ All rights reserved.
 """
 import os
 import argparse
+import random
+import warnings
 
+import torch
 from torch.backends import cudnn
 from torch.utils.data import DataLoader
 from torchvision import utils, transforms
@@ -69,11 +72,11 @@ parser.add_argument('--ecm', default='ls', type=str,
                         ' (default: ls)')
 parser.add_argument('--classes', type=int, default=6, metavar='N',
                     help='classes (default: 6)')
-parser.add_argument('--t_size', type=int, default=2000, metavar='N',
+parser.add_argument('--t-size', type=int, default=2000, metavar='N',
                     help='train set size (default: 2000)')
-parser.add_argument('--v_size', type=int, default=200, metavar='N',
+parser.add_argument('--v-size', type=int, default=200, metavar='N',
                     help='val set size (default: 200)')
-parser.add_argument('--im_size', type=int, default=192, metavar='N',
+parser.add_argument('--im-size', type=int, default=192, metavar='N',
                     help='image height and width (default: 192)')
 args = parser.parse_args()
 

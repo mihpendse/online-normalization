@@ -90,8 +90,8 @@ class ActivationClamp(nn.Module):
         return torch.clamp(input, -self.clamp_value, self.clamp_value)
 
 
-class ControlNorm1DLoop(nn.Module):
-    r"""Applies Control Normalization (the per feature exponential moving
+class Norm1D(nn.Module):
+    r"""Applies Normalization (the per feature exponential moving
     average, ema, forward and control process backward part of the Online
     Normalization algorithm) over a 2D input (a mini-batch of 1D inputs) as
     described in the paper:
@@ -124,7 +124,7 @@ class ControlNorm1DLoop(nn.Module):
 
     Examples::
 
-        >>> norm = ControlNorm1DLoop(100, 0.999, 0.99)
+        >>> norm = Norm1D(100, 0.999, 0.99)
         >>> input = torch.randn(20, 100)
         >>> output = norm(input)
     """
@@ -133,7 +133,7 @@ class ControlNorm1DLoop(nn.Module):
 
     def __init__(self, num_features,
                  alpha_fwd=0.999, alpha_bkw=0.99, eps=1e-05):
-        super(ControlNorm1DLoop, self).__init__()
+        super(Norm1D, self).__init__()
         self.num_features = num_features
         self.eps = eps
 
@@ -149,7 +149,7 @@ class ControlNorm1DLoop(nn.Module):
         self.register_buffer('v', torch.zeros([num_features]))
         self.init_norm_params()
 
-        class ControlNormalization(torch.autograd.Function):
+        class Normalization(torch.autograd.Function):
             @staticmethod
             def forward(ctx, input):
                 afwd = self.afwd
@@ -196,7 +196,7 @@ class ControlNorm1DLoop(nn.Module):
 
                 return grad_in
 
-        self.normalizer = ControlNormalization.apply
+        self.normalizer = Normalization.apply
 
     def init_norm_params(self):
         nn.init.constant_(self.m, 0)
@@ -315,8 +315,8 @@ def lin_crtl(delta, out, b_size, num_features, v_p, alpha_p, beta_p,
     )
 
 
-class ControlNorm1D(nn.Module):
-    r"""Applies Control Normalization (the per feature exponential moving
+class Norm1DBatched(nn.Module):
+    r"""Applies Normalization (the per feature exponential moving
     average, ema, forward and control process backward part of the Online
     Normalization algorithm) over a 2D input (a mini-batch of 1D inputs) as
     described in the paper:
@@ -359,7 +359,7 @@ class ControlNorm1D(nn.Module):
     Examples::
 
         >>> B, C = 32, 256
-        >>> norm = ControlNorm1D(C, B, 0.999, 0.99)
+        >>> norm = Norm1DBatched(C, B, 0.999, 0.99)
         >>> input = torch.randn(B, C)
         >>> output = norm(input)
     """
@@ -368,7 +368,7 @@ class ControlNorm1D(nn.Module):
 
     def __init__(self, num_features, batch_size,
                  alpha_fwd=0.999, alpha_bkw=0.99, eps=1e-05):
-        super(ControlNorm1D, self).__init__()
+        super(Norm1DBatched, self).__init__()
         assert isinstance(batch_size, int), 'batch_size must be an integer'
         assert batch_size > 0, 'batch_size must be greater than 0'
         self.num_features = num_features
@@ -400,7 +400,7 @@ class ControlNorm1D(nn.Module):
         self.register_buffer('alpha_p', torch.ones([batch_size, num_features]))
         self.init_norm_params()
 
-        class ControlNormalization(torch.autograd.Function):
+        class Normalization(torch.autograd.Function):
             @staticmethod
             def forward(ctx, input):
 
@@ -461,7 +461,7 @@ class ControlNorm1D(nn.Module):
 
                 return grad_delta
 
-        self.normalizer = ControlNormalization.apply
+        self.normalizer = Normalization.apply
 
     def init_norm_params(self):
         nn.init.constant_(self.m, 0)
@@ -494,7 +494,7 @@ class OnlineNorm1D(nn.Module):
     `Online Normalization for Training Neural Networks`.
 
     .. math::
-        y_t = LayerScaling1D(ControlNorm1D(x_t) * \gamma + \beta)
+        y_t = LayerScaling1D(Norm1D(x_t) * \gamma + \beta)
 
     Args:
         num_features: :math:`L` from an expected input of size :math:`(N, L)`
@@ -512,9 +512,9 @@ class OnlineNorm1D(nn.Module):
             Choice: `ac` (Activation Clamping) | `ls` (Layer Scaling).
         ls_eps: if ecm is `ls`, this is the `ls` eps.
         clamp_val: if ecm is `ac` this is the clamp value.
-        loop: a boolean which trigers the looped variant of ControlNorm
-            regaurdless of batch size. Note: looped variant is enabled
-            automatically when batch_size = 1. Default: False
+        batch_acceleration: enable batch accelerated variant of norm. Requires
+            knowing the batch size apriori. Automatically diabled if batch size
+            is 1 or None. Default: True
 
     Shape:
         - Input: :math:`(N, L)`
@@ -523,11 +523,11 @@ class OnlineNorm1D(nn.Module):
     Examples::
 
         >>> # With Learnable Parameters
-        >>> norm = OnlineNorm2D(128)
+        >>> norm = OnlineNorm1D(128, batch_size=64)
         >>> # Without Learnable Parameters
-        >>> norm = OnlineNorm2D(128, batch_size=64)
-        >>> # With ControlNorm2DLoop
-        >>> onloop = OnlineNorm2D(128)
+        >>> norm = OnlineNorm1D(128, batch_size=64, affine=False)
+        >>> # With Norm1D with loops
+        >>> norm = OnlineNorm1D(128)
         >>> input = torch.randn(64, 128)
         >>> output = norm(input)
     """
@@ -536,20 +536,25 @@ class OnlineNorm1D(nn.Module):
     def __init__(self, num_features, batch_size=None,
                  alpha_fwd=0.999, alpha_bkw=0.99, eps=1e-05,
                  affine=True, ecm='ls', ls_eps=1e-05, clamp_val=5,
-                 loop=False, **kwargs):
+                 batch_acceleration=True, **kwargs):
         super(OnlineNorm1D, self).__init__()
         self.num_features = num_features
 
-        if batch_size == 1 or batch_size is None or loop:
-            self.ctrl_norm = ControlNorm1DLoop(num_features,
-                                               alpha_fwd=alpha_fwd,
-                                               alpha_bkw=alpha_bkw,
-                                               eps=eps)
+        if batch_size is None:
+            batch_acceleration = False
+        elif batch_size == 1:
+            batch_acceleration = False
+
+        if batch_acceleration:
+            self.norm = Norm1DBatched(num_features, batch_size,
+                                      alpha_fwd=alpha_fwd,
+                                      alpha_bkw=alpha_bkw,
+                                      eps=eps)
         else:
-            self.ctrl_norm = ControlNorm1D(num_features, batch_size,
-                                           alpha_fwd=alpha_fwd,
-                                           alpha_bkw=alpha_bkw,
-                                           eps=eps)
+            self.norm = Norm1D(num_features,
+                               alpha_fwd=alpha_fwd,
+                               alpha_bkw=alpha_bkw,
+                               eps=eps)
 
         if ecm.lower() == 'ls':
             self.ecm = LayerScaling1D(eps=ls_eps, **kwargs)
@@ -577,8 +582,8 @@ class OnlineNorm1D(nn.Module):
         return f'weight={self.weight is not None}, bias={self.bias is not None}'
 
     def forward(self, input):
-        # apply control norm
-        out = self.ctrl_norm(input)
+        # apply norm
+        out = self.norm(input)
         # scale output
         if self.weight is not None:
             out = out * self.weight.unsqueeze(0)

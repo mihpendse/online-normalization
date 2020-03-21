@@ -60,7 +60,7 @@ class BatchControlNorm(Layer):
                  axis=-1, epsilon=1e-5,
                  stream_mu_initializer='zeros', stream_var_initializer='ones',
                  u_ctrl_initializer='zeros', v_ctrl_initializer='zeros',
-                 trainable=True, b_size=1, name=None, **kwargs):
+                 trainable=True, b_size=None, name=None, **kwargs):
         super(BatchControlNorm, self).__init__(trainable=trainable,
                                               name=name, **kwargs)
         self.afwd = alpha_fwd
@@ -76,6 +76,7 @@ class BatchControlNorm(Layer):
         self.v_ctrl_initializer = initializers.get(v_ctrl_initializer)
 
         self.b_size = b_size
+        assert self.b_size > 2, "Layer created to handle batches of data"
         self.norm_ax = None
 
     def control_normalization(self, inputs):
@@ -804,9 +805,6 @@ class BatchOnlineNorm(Layer):
         if training is None:
             training = K.learning_phase()
 
-        # Determine a boolean value for `training`: could be True, False, or None.
-        training_value = tf_utils.constant_value(training)
-
         input_shape = inputs.get_shape()
 
         def _bcast(inputs):
@@ -829,28 +827,7 @@ class BatchOnlineNorm(Layer):
             precise_inputs = math_ops.cast(inputs, dtypes.float32)
 
         # streaming / control normalization
-        if training_value is not False:
-            x_norm = tf_utils.smart_cond(
-                training,
-                lambda: self.control_normalization.apply(precise_inputs, training),
-                lambda: tf.nn.batch_normalization(
-                    precise_inputs,
-                    tf.reshape(self.mu[-1], self.broadcast_shape),
-                    tf.reshape(self.var[-1], self.broadcast_shape),
-                    None,
-                    None,
-                    self.epsilon
-                )
-            )
-        else:
-            x_norm = tf.nn.batch_normalization(
-                precise_inputs,
-                tf.reshape(self.mu[-1], self.broadcast_shape),
-                tf.reshape(self.var[-1], self.broadcast_shape),
-                None,
-                None,
-                self.epsilon
-            )
+        x_norm = self.control_normalization.apply(precise_inputs, training)
 
         # scale and bias
         x_scaled = x_norm * _bcast(self.gamma) if self.scale else x_norm

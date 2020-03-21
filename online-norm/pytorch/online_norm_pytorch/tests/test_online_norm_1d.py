@@ -7,10 +7,11 @@ All rights reserved.
 This module tests the Online Normalization module
 """
 import time
-import unittest
 import logging
+import unittest
 import numpy as np
 import torch
+
 from online_norm_pytorch import OnlineNorm1D
 
 
@@ -113,7 +114,7 @@ class TestOnlineNorm1D(unittest.TestCase):
             out.sum().backward()
             backward += time.time() - start
 
-        self.logger.info(f'Loop Control Normalization Speed Test: '
+        self.logger.info(f'Loop Normalization Speed Test: '
                          f'Forward {forward * 1e6/1e5:.3f} us | '
                          f'Backward {backward * 1e6/1e5:.3f} us | '
                          f'Total {(forward + backward) * 1e6/1e5:.3f} us')

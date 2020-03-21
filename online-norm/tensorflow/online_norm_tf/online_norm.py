@@ -334,10 +334,10 @@ class ControlNorm(Layer):
             normalized activations with multiplicative scale and additive bias
             corrections
         """
-        original_training_value = training
         if training is None:
             training = K.learning_phase()
 
+        
         # Determine a boolean value for `training`: could be True, False, or None.
         training_value = tf_utils.constant_value(training)
 
@@ -583,9 +583,6 @@ class OnlineNorm(Layer):
         if training is None:
             training = K.learning_phase()
 
-        # Determine a boolean value for `training`: could be True, False, or None.
-        training_value = tf_utils.constant_value(training)
-
         input_shape = inputs.get_shape()
 
         def _bcast(inputs):
@@ -608,28 +605,7 @@ class OnlineNorm(Layer):
             precise_inputs = math_ops.cast(inputs, dtypes.float32)
 
         # streaming / control normalization
-        if training_value is not False:
-            x_norm = tf_utils.smart_cond(
-                training,
-                lambda: self.control_normalization.apply(precise_inputs, training),
-                lambda: tf.nn.batch_normalization(
-                    precise_inputs,
-                    tf.reshape(self.mu, self.broadcast_shape),
-                    tf.reshape(self.var, self.broadcast_shape),
-                    None,
-                    None,
-                    self.epsilon
-                )
-            )
-        else:
-            x_norm = tf.nn.batch_normalization(
-                precise_inputs,
-                tf.reshape(self.mu, self.broadcast_shape),
-                tf.reshape(self.var, self.broadcast_shape),
-                None,
-                None,
-                self.epsilon
-            )
+        x_norm = self.control_normalization.apply(precise_inputs, training)
 
         # scale and bias
         x_scaled = x_norm * _bcast(self.gamma) if self.scale else x_norm

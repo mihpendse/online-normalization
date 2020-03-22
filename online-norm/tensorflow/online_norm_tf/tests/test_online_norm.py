@@ -12,7 +12,6 @@ import tensorflow as tf
 from online_norm_tf import online_norm
 
 
-
 tf.logging.set_verbosity(tf.logging.ERROR)
 
 # for random generation of test data
@@ -299,7 +298,6 @@ class BatchOnlineNormTest(unittest.TestCase):
                 np.testing.assert_allclose(grad_in, bon_grad_idx,
                                            rtol=RTOL, atol=ATOL,
                                            err_msg=b_err_str)
-
 
     def test050_bon_vs_on_ch_last(self,
                                   alpha_fwd=ALPHA_FWD, alpha_bkw=ALPHA_BKW):

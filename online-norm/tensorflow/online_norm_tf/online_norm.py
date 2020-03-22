@@ -5,6 +5,7 @@ All rights reserved.
 
 TensorFlow Implementation of the Online Normalization Layer
 """
+import warnings
 
 import tensorflow as tf
 from tensorflow.python.ops import math_ops
@@ -61,6 +62,8 @@ class Norm(Layer):
                  u_ctrl_initializer='zeros', v_ctrl_initializer='zeros',
                  b_size=None, trainable=True, name=None, **kwargs):
         super(Norm, self).__init__(trainable=trainable, name=name, **kwargs)
+        if b_size > 1:
+            warnings.warn('Not running true OnlineNormalization Algorithm')
         self.b_size = b_size
         self.axis = axis
         self.norm_ax = None
@@ -437,7 +440,7 @@ class NormBatched(Layer):
         super(NormBatched, self).__init__(trainable=trainable,
                                           name=name, **kwargs)
         self.b_size = b_size
-        assert self.b_size > 2, "Layer created to handle batches of data"
+        assert self.b_size > 1, "Layer created to handle batches of data"
         self.axis = axis
         self.norm_ax = None
         self.epsilon = epsilon
@@ -1004,6 +1007,7 @@ class OnlineNorm(Layer):
         batch_acceleration: enable batch accelerated variant of norm. Requires
             knowing the batch size apriori. Automatically diabled if batch size
             is 1 or None. Default: True
+        b_size: batch size used for training 
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
@@ -1028,13 +1032,14 @@ class OnlineNorm(Layer):
                  beta_regularizer=None, gamma_regularizer=None,
                  beta_constraint=None, gamma_constraint=None,
                  ecm='ls', ls_eps=1e-05, clamp_val=5, batch_acceleration=True,
-                 trainable=True, b_size=1, name=None, **kwargs):
+                 b_size=1, trainable=True, name=None, **kwargs):
         super(OnlineNorm, self).__init__(trainable=trainable,
                                          name=name, **kwargs)
         self.axis = axis
 
-        batch_acceleration
-        norm_func = NormBatched if batch_acceleration and b_size > 1 else Norm
+        assert isinstance(b_size, int), 'batch size should be an int'
+        batch_acceleration = False if b_size == 1 else batch_acceleration
+        norm_func = NormBatched if batch_acceleration else Norm
         
         self.normalization = norm_func(
             alpha_fwd=alpha_fwd,
@@ -1202,32 +1207,34 @@ class OnlineNorm(Layer):
         return outputs
 
 
-def online_norm(inputs,
-                training=False,
-                alpha_fwd=0.999,
-                alpha_bkw=0.99,
-                axis=-1,
-                epsilon=1e-5,
-                stream_mu_initializer='zeros',
-                stream_var_initializer='ones',
-                u_ctrl_initializer='zeros',
-                v_ctrl_initializer='zeros',
-                center=True,
-                scale=True,
-                beta_initializer='zeros',
-                gamma_initializer='ones',
-                beta_regularizer=None,
-                gamma_regularizer=None,
-                beta_constraint=None,
-                gamma_constraint=None,
-                ecm='ls',
-                ls_eps=1e-05,
-                clamp_val=5,
-                batch_acceleration=True,
-                trainable=True,
-                b_size=1,
-                name=None,
-                **kwargs):
+def online_norm(
+    inputs,
+    training=False,
+    alpha_fwd=0.999,
+    alpha_bkw=0.99,
+    axis=-1,
+    epsilon=1e-5,
+    stream_mu_initializer='zeros',
+    stream_var_initializer='ones',
+    u_ctrl_initializer='zeros',
+    v_ctrl_initializer='zeros',
+    center=True,
+    scale=True,
+    beta_initializer='zeros',
+    gamma_initializer='ones',
+    beta_regularizer=None,
+    gamma_regularizer=None,
+    beta_constraint=None,
+    gamma_constraint=None,
+    ecm='ls',
+    ls_eps=1e-05,
+    clamp_val=5,
+    batch_acceleration=True,
+    trainable=True,
+    b_size=1,
+    name=None,
+    **kwargs
+):
     """
     Functional interface to the Online Normalization Layer defined above
 

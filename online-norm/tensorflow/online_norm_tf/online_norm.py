@@ -1063,7 +1063,13 @@ class OnlineNorm(Layer):
         self.beta_constraint = constraints.get(beta_constraint)
         self.gamma_constraint = constraints.get(gamma_constraint)
 
-        self.ecm = ecm
+        self.ecm = None
+        if ecm == 'ls':
+            self.ecm = self.layer_scaling
+        elif ecm == 'ac':
+            self.ecm = self.activation_clamp
+        elif ecm:
+            raise ValueError('Invalid input. ecm options: "ls" | "ac" | ""')
         self.ls_eps = ls_eps
         self.clamp_val = clamp_val
 
@@ -1081,6 +1087,16 @@ class OnlineNorm(Layer):
                                axis=list(range(len(inputs.get_shape())))[1:],
                                keepdims=True)
         return inputs * tf.rsqrt(scale + self.ls_eps)
+
+    def activation_clamp(self, inputs):
+        """
+        Clips the output of CN.
+        Arguments:
+            inputs: input activations
+        Returns
+            clamped activations
+        """
+        return tf.clip_by_value(inputs, -self.clamp_val, self.clamp_val)
 
     def build(self, input_shape):
         """
@@ -1198,7 +1214,7 @@ class OnlineNorm(Layer):
         x_scaled = x_norm * _bcast(self.gamma) if self.scale else x_norm
         x_bias = x_scaled + _bcast(self.beta) if self.center else x_scaled
 
-        outputs = self.layer_scaling(x_bias) if self.ecm == 'ls' else x_bias
+        outputs = self.ecm(x_bias) if self.ecm is not None else x_bias
 
         # if needed, cast back to fp16
         if mixed_precision:

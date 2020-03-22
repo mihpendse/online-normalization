@@ -1031,7 +1031,7 @@ class OnlineNorm(Layer):
                  beta_initializer='zeros', gamma_initializer='ones',
                  beta_regularizer=None, gamma_regularizer=None,
                  beta_constraint=None, gamma_constraint=None,
-                 ecm='ls', ls_eps=1e-05, clamp_val=5, batch_acceleration=True,
+                 ecm='ac', ls_eps=1e-05, clamp_val=5, batch_acceleration=True,
                  b_size=1, trainable=True, name=None, **kwargs):
         super(OnlineNorm, self).__init__(trainable=trainable,
                                          name=name, **kwargs)
@@ -1242,7 +1242,7 @@ def online_norm(
     gamma_regularizer=None,
     beta_constraint=None,
     gamma_constraint=None,
-    ecm='ls',
+    ecm='ac',
     ls_eps=1e-05,
     clamp_val=5,
     batch_acceleration=True,

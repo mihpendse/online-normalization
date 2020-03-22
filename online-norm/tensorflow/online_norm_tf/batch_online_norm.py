@@ -15,9 +15,9 @@ from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.keras.layers import Layer
 
 
-class BatchControlNorm(Layer):
+class NormBatched(Layer):
     """
-    Custom backprop controled normalizer implementation of the
+    Custom backprop normalizer implementation of the
     [Online Normalization Algorithm](https://arxiv.org/abs/1905.05894)
     with accepleration for batch processing.
 
@@ -40,10 +40,10 @@ class BatchControlNorm(Layer):
         stream_var_initializer: Initializer for the streaming variance.
         u_ctrl_initializer: Initializer for the u control variable.
         v_ctrl_initializer: Initializer for the v control variable.
+        b_size: batch size used for training 
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
-            (see tf.Variable). (Default: True)
-        b_size: batch size which is being trained. (Default: 1)
+            (see tf.Variable).  (Default: True)
 
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
@@ -60,27 +60,189 @@ class BatchControlNorm(Layer):
                  axis=-1, epsilon=1e-5,
                  stream_mu_initializer='zeros', stream_var_initializer='ones',
                  u_ctrl_initializer='zeros', v_ctrl_initializer='zeros',
-                 trainable=True, b_size=None, name=None, **kwargs):
-        super(BatchControlNorm, self).__init__(trainable=trainable,
-                                              name=name, **kwargs)
+                 b_size=None, trainable=True, name=None, **kwargs):
+        super(NormBatched, self).__init__(trainable=trainable,
+                                          name=name, **kwargs)
+        self.b_size = b_size
+        assert self.b_size > 2, "Layer created to handle batches of data"
+        self.axis = axis
+        self.norm_ax = None
+        self.epsilon = epsilon
+
         self.afwd = alpha_fwd
         self.abkw = alpha_bkw
-
-        self.axis = axis[:] if isinstance(axis, list) else axis
-
-        self.epsilon = epsilon
 
         self.stream_mu_initializer = initializers.get(stream_mu_initializer)
         self.stream_var_initializer = initializers.get(stream_var_initializer)
         self.u_ctrl_initializer = initializers.get(u_ctrl_initializer)
         self.v_ctrl_initializer = initializers.get(v_ctrl_initializer)
 
-        self.b_size = b_size
-        assert self.b_size > 2, "Layer created to handle batches of data"
-        self.norm_ax = None
+    def build(self, input_shape):
+        """
+        Allocation of variables for the normalizer.
+        See `call`, `fprop`, and `bprop` for variable usage.
+        """
+        input_shape = input_shape.as_list()
+        ndims = len(input_shape)
 
-    def control_normalization(self, inputs):
-        r"""Applies Control Normalization (the per feature exponential moving
+        # Convert axis to list and resolve negatives
+        if isinstance(self.axis, int):
+            self.axis = [self.axis]
+        if not isinstance(self.axis, list):
+              raise TypeError('axis must be int or list, type given: %s'
+                              % type(self.axis))
+
+        for idx, x in enumerate(self.axis):
+            if x < 0:
+                self.axis[idx] = ndims + x
+
+        # Validate axes
+        for x in self.axis:
+            if x < 0 or x >= ndims:
+                raise ValueError('Invalid axis: %d' % x)
+        if len(self.axis) != len(set(self.axis)):
+            raise ValueError('Duplicate axis: %s' % self.axis)
+
+        if len(self.axis) > 1:
+            raise NotImplementedError('Multi axis batching acceleration not implemeted')
+
+        self.ch = input_shape[self.axis[0]]
+
+        # Raise parameters of fp16 batch norm to fp32
+        # something which tf's BN layer builder does
+        if self.dtype == dtypes.float16 or self.dtype == dtypes.bfloat16:
+            param_dtype = dtypes.float32
+        else:
+            param_dtype = self.dtype or dtypes.float32
+
+        axis_to_dim = {x: input_shape[x] for x in self.axis}
+        for x in axis_to_dim:
+            if axis_to_dim[x] is None:
+                raise ValueError('Input has undefined `axis` dimension. Input '
+                                 'shape: ', input_shape)
+
+        # configure the statistics shape and the axis along which to normalize
+        self.norm_ax, stat_shape, self.broadcast_shape  = [], [], []
+        for idx, ax in enumerate(input_shape):
+            if idx == 0:
+                stat_shape += [self.b_size]
+                self.broadcast_shape.append(1)
+            elif idx in self.axis:
+                stat_shape += [ax]
+                self.broadcast_shape.append(ax)
+            if idx not in self.axis and idx != 0:
+                self.norm_ax += [idx]
+
+        # batch streaming parameters fpass
+        self.afbatch = ((self.afwd ** self.b_size) *
+                        tf.constant([1.], shape=[self.b_size, self.ch]))
+        self.afpow = tf.reshape(self.afwd ** tf.range(self.b_size - 1, -1, -1,
+                                                    dtype=tf.float32),
+                                (self.b_size, 1, 1))
+
+        # batch streaming parameters fpass
+        self.abbatch = ((self.abkw ** self.b_size) *
+                        tf.constant([1.], shape=[self.b_size, self.ch]))
+        self.abpow = tf.reshape(self.abkw ** tf.range(self.b_size - 1, -1, -1,
+                                                    dtype=tf.float32),
+                                (self.b_size, 1, 1))
+
+        # streaming normalization statistics
+        self.mu = self.add_variable(
+            'mu',
+            stat_shape,
+            initializer=self.stream_mu_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        self.var = self.add_variable(
+            'var',
+            stat_shape,
+            initializer=self.stream_var_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        # bprop cache variables
+        self.s = self.add_variable(
+            's',
+            stat_shape,
+            initializer=self.stream_var_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        self.outputs = self.add_variable(
+            'outputs',
+            [self.b_size] + input_shape[1:],
+            initializer=tf.zeros_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        # capture previous batch statistics
+        self.mu_p = self.add_variable(
+            'mu_p',
+            stat_shape,
+            initializer=self.stream_mu_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+        self.var_p = self.add_variable(
+            'var_p',
+            stat_shape,
+            initializer=self.stream_var_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        # u control variables
+        self.u_ctrl = self.add_variable(
+            'u_ctrl',
+            stat_shape,
+            initializer=self.u_ctrl_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+        # capture stats of d for previous time step needed for u controller
+        self.u_ctrl_p = self.add_variable(
+            'u_ctrl_p',
+            stat_shape,
+            initializer=self.u_ctrl_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        # v control variables
+        self.v_p = self.add_variable(
+            'v_p',
+            stat_shape,
+            initializer=self.v_ctrl_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        self.alpha_p = self.add_variable(
+            'alpha_p',
+            stat_shape,
+            initializer=tf.ones_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        self.beta_p = self.add_variable(
+            'beta_p',
+            stat_shape,
+            initializer=self.v_ctrl_initializer,
+            dtype=param_dtype,
+            trainable=False
+        )
+
+        self.built = True
+
+    def normalization(self, inputs):
+        r"""Applies normalization (the per feature exponential moving
         average, ema, forward and control process backward part of the Online
         Normalization algorithm) as described in the paper:
         `Online Normalization for Training Neural Networks`.
@@ -362,175 +524,6 @@ class BatchControlNorm(Layer):
 
         return forward(inputs)
 
-    def build(self, input_shape):
-        """
-        Allocation of variables for the normalizer.
-        See `call`, `fprop`, and `bprop` for variable usage.
-        """
-        input_shape = input_shape.as_list()
-        ndims = len(input_shape)
-
-        self.ch = input_shape[self.axis]
-
-        # Convert axis to list and resolve negatives
-        if isinstance(self.axis, int):
-            self.axis = [self.axis]
-        if not isinstance(self.axis, list):
-              raise TypeError('axis must be int or list, type given: %s'
-                              % type(self.axis))
-
-        for idx, x in enumerate(self.axis):
-            if x < 0:
-                self.axis[idx] = ndims + x
-
-        # Validate axes
-        for x in self.axis:
-            if x < 0 or x >= ndims:
-                raise ValueError('Invalid axis: %d' % x)
-        if len(self.axis) != len(set(self.axis)):
-            raise ValueError('Duplicate axis: %s' % self.axis)
-
-        # Raise parameters of fp16 batch norm to fp32
-        # something which tf's BN layer builder does
-        if self.dtype == dtypes.float16 or self.dtype == dtypes.bfloat16:
-            param_dtype = dtypes.float32
-        else:
-            param_dtype = self.dtype or dtypes.float32
-
-        axis_to_dim = {x: input_shape[x] for x in self.axis}
-        for x in axis_to_dim:
-            if axis_to_dim[x] is None:
-                raise ValueError('Input has undefined `axis` dimension. Input '
-                                 'shape: ', input_shape)
-
-        if len(axis_to_dim) == 1:
-            # Single axis online norm
-            param_shape = (list(axis_to_dim.values())[0],)
-        else:
-            # Parameter shape is the original shape but 1 in all non-axis dims
-            param_shape = [axis_to_dim[i] if i in axis_to_dim
-                           else 1 for i in range(ndims)]
-
-        # configure the statistics shape and the axis along which to normalize
-        self.norm_ax, stat_shape, self.broadcast_shape  = [], [], []
-        for idx, ax in enumerate(input_shape):
-            if idx == 0:
-                stat_shape += [self.b_size]
-                self.broadcast_shape.append(1)
-            elif idx in self.axis:
-                stat_shape += [ax]
-                self.broadcast_shape.append(ax)
-            if idx not in self.axis and idx != 0:
-                self.norm_ax += [idx]
-
-        # batch streaming parameters fpass
-        self.afbatch = ((self.afwd ** self.b_size) *
-                        tf.constant([1.], shape=[self.b_size, self.ch]))
-        self.afpow = tf.reshape(self.afwd ** tf.range(self.b_size - 1, -1, -1,
-                                                    dtype=tf.float32),
-                                (self.b_size, 1, 1))
-
-        # batch streaming parameters fpass
-        self.abbatch = ((self.abkw ** self.b_size) *
-                        tf.constant([1.], shape=[self.b_size, self.ch]))
-        self.abpow = tf.reshape(self.abkw ** tf.range(self.b_size - 1, -1, -1,
-                                                    dtype=tf.float32),
-                                (self.b_size, 1, 1))
-
-        # streaming normalization statistics
-        self.mu = self.add_variable(
-            'mu',
-            stat_shape,
-            initializer=self.stream_mu_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        self.var = self.add_variable(
-            'var',
-            stat_shape,
-            initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        # bprop cache variables
-        self.s = self.add_variable(
-            's',
-            stat_shape,
-            initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        self.outputs = self.add_variable(
-            'outputs',
-            [self.b_size] + input_shape[1:],
-            initializer=tf.zeros_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        # capture previous batch statistics
-        self.mu_p = self.add_variable(
-            'mu_p',
-            stat_shape,
-            initializer=self.stream_mu_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-        self.var_p = self.add_variable(
-            'var_p',
-            stat_shape,
-            initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        # u control variables
-        self.u_ctrl = self.add_variable(
-            'u_ctrl',
-            stat_shape,
-            initializer=self.u_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-        # capture stats of d for previous time step needed for u controller
-        self.u_ctrl_p = self.add_variable(
-            'u_ctrl_p',
-            stat_shape,
-            initializer=self.u_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        # v control variables
-        self.v_p = self.add_variable(
-            'v_p',
-            stat_shape,
-            initializer=self.v_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        self.alpha_p = self.add_variable(
-            'alpha_p',
-            stat_shape,
-            initializer=tf.ones_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        self.beta_p = self.add_variable(
-            'beta_p',
-            stat_shape,
-            initializer=self.v_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
-        )
-
-        self.built = True
-
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
@@ -547,7 +540,7 @@ class BatchControlNorm(Layer):
             training = K.learning_phase()
 
         # Determine a boolean value for `training`: could be True, False, or None.
-        training_value = tf_utils.constant_value(training)
+        training = tf_utils.constant_value(training)
 
         input_shape = inputs.get_shape()
 
@@ -571,10 +564,10 @@ class BatchControlNorm(Layer):
             precise_inputs = math_ops.cast(inputs, dtypes.float32)
 
         # streaming / control normalization
-        if training_value is not False:
-            x_norm = tf_utils.smart_cond(
+        if training is not False:
+            outputs = tf_utils.smart_cond(
                 training,
-                lambda: self.control_normalization(precise_inputs),
+                lambda: self.normalization(precise_inputs),
                 lambda: tf.nn.batch_normalization(
                     precise_inputs,
                     tf.reshape(self.mu[-1], self.broadcast_shape),
@@ -585,7 +578,7 @@ class BatchControlNorm(Layer):
                 )
             )
         else:
-            x_norm = tf.nn.batch_normalization(
+            outputs = tf.nn.batch_normalization(
                 precise_inputs,
                 tf.reshape(self.mu[-1], self.broadcast_shape),
                 tf.reshape(self.var[-1], self.broadcast_shape),
@@ -593,8 +586,6 @@ class BatchControlNorm(Layer):
                 None,
                 self.epsilon
             )
-
-        outputs = x_norm
 
         # if needed, cast back to fp16
         if mixed_precision:
@@ -606,43 +597,43 @@ class BatchControlNorm(Layer):
 class BatchOnlineNorm(Layer):
     """
     Implementation of the 
-    [Online Normalization Algorithm](https://arxiv.org/abs/1905.05894) 
-
-    Note:
-        Implemented with custom gradients, using the @tf.custom_gradient
-        decorator which requires tf.__version__ >= 1.7
+    [Online Normalization Layer](https://arxiv.org/abs/1905.05894) 
 
     Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
         alpha_bkw: the decay factor to be used in bprop to control the
             gradients propagating through the network. Default: 0.99
-        layer_scaling: a boolean determining whether layer scaling is applied
-            as the final stage of normalization. Default: `True`
         axis: Integer, the axis that should be normalized (typically the
             features axis). For instance, after a `Conv2D` layer with
             `data_format="channels_first"`, set `axis=1` in
             `OnlineNormalization`. Default: -1
         epsilon: a value added to the denominator for numerical stability.
             Default: 1e-5.
+        stream_mu_initializer: Initializer for the streaming mean.
+        stream_var_initializer: Initializer for the streaming variance.
+        u_ctrl_initializer: Initializer for the u control variable.
+        v_ctrl_initializer: Initializer for the v control variable.
         center: a boolean value that when set to `True`, this module has
             learnable bias parameters. Default: `True`
         scale: a boolean value that when set to `True`, this module has
             learnable linear parameters. Default: `True`
         beta_initializer: Initializer for the beta weight.
         gamma_initializer: Initializer for the gamma weight.
-        stream_mu_initializer: Initializer for the streaming mean.
-        stream_var_initializer: Initializer for the streaming variance.
-        u_ctrl_initializer: Initializer for the u control variable.
-        v_ctrl_initializer: Initializer for the v control variable.
         beta_regularizer: Optional regularizer for the beta weight.
         gamma_regularizer: Optional regularizer for the gamma weight.
         beta_constraint: Optional constraint for the beta weight.
         gamma_constraint: Optional constraint for the gamma weight.
+        ecm: a string which defines the error checking mechanism in OnlineNorm.
+            Choice: `ac` (Activation Clamping) | `ls` (Layer Scaling).
+        ls_eps: if ecm is `ls`, this is the `ls` eps.
+        clamp_val: if ecm is `ac` this is the clamp value.
+        batch_acceleration: enable batch accelerated variant of norm. Requires
+            knowing the batch size apriori. Automatically diabled if batch size
+            is 1 or None. Default: True
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
-            (see tf.Variable). (Default: True)
-        b_size: batch size which is being trained. (Default: 1)
+            (see tf.Variable).  (Default: True)
 
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
@@ -655,24 +646,33 @@ class BatchOnlineNorm(Layer):
         - [Online Normalization for Training Neural Networks](https://arxiv.org/abs/1905.05894)
     """
 
-    def __init__(self, alpha_fwd=0.999, alpha_bkw=0.99, layer_scaling=True,
-                 axis=-1, epsilon=1e-5, center=True, scale=True,
-                 beta_initializer='zeros', gamma_initializer='ones',
+    def __init__(self, alpha_fwd=0.999, alpha_bkw=0.99,
+                 axis=-1, epsilon=1e-5,
                  stream_mu_initializer='zeros', stream_var_initializer='ones',
                  u_ctrl_initializer='zeros', v_ctrl_initializer='zeros',
+                 center=True, scale=True,
+                 beta_initializer='zeros', gamma_initializer='ones',
                  beta_regularizer=None, gamma_regularizer=None,
                  beta_constraint=None, gamma_constraint=None,
+                 ecm='ls', ls_eps=1e-05, clamp_val=5, batch_acceleration=True,
                  trainable=True, b_size=1, name=None, **kwargs):
         super(BatchOnlineNorm, self).__init__(trainable=trainable,
-                                              name=name, **kwargs)
-        self.afwd = alpha_fwd
-        self.abkw = alpha_bkw
+                                         name=name, **kwargs)
+        self.axis = axis
+        
+        self.normalization = NormBatched(
+            alpha_fwd=alpha_fwd,
+            alpha_bkw=alpha_bkw,
+            axis=axis,
+            epsilon=epsilon,
+            stream_mu_initializer=stream_mu_initializer,
+            stream_var_initializer=stream_var_initializer,
+            u_ctrl_initializer=u_ctrl_initializer,
+            v_ctrl_initializer=v_ctrl_initializer,
+            b_size=b_size,
+            trainable=trainable,
+        )
 
-        self.ls = layer_scaling
-
-        self.axis = axis[:] if isinstance(axis, list) else axis
-
-        self.epsilon = epsilon
         self.center = center
         self.scale = scale
         self.beta_initializer = initializers.get(beta_initializer)
@@ -682,15 +682,9 @@ class BatchOnlineNorm(Layer):
         self.beta_constraint = constraints.get(beta_constraint)
         self.gamma_constraint = constraints.get(gamma_constraint)
 
-        self.b_size = b_size
-        self.norm_ax = None
-        
-        self.control_normalization = BatchControlNorm(
-            alpha_fwd, alpha_bkw, axis, epsilon,
-            stream_mu_initializer, stream_var_initializer,
-            u_ctrl_initializer, v_ctrl_initializer,
-            trainable, b_size, name, **kwargs
-        )
+        self.ecm = ecm
+        self.ls_eps = ls_eps
+        self.clamp_val = clamp_val
 
     def layer_scaling(self, inputs):
         """
@@ -705,7 +699,7 @@ class BatchOnlineNorm(Layer):
         scale = tf.reduce_mean(inputs * inputs,
                                axis=list(range(len(inputs.get_shape())))[1:],
                                keepdims=True)
-        return inputs * tf.rsqrt(scale + self.epsilon)
+        return inputs * tf.rsqrt(scale + self.ls_eps)
 
     def build(self, input_shape):
         """
@@ -714,8 +708,6 @@ class BatchOnlineNorm(Layer):
         """
         input_shape = input_shape.as_list()
         ndims = len(input_shape)
-
-        self.ch = input_shape[self.axis]
 
         # Convert axis to list and resolve negatives
         if isinstance(self.axis, int):
@@ -735,7 +727,7 @@ class BatchOnlineNorm(Layer):
         if len(self.axis) != len(set(self.axis)):
             raise ValueError('Duplicate axis: %s' % self.axis)
 
-        # Raise parameters of fp16 batch norm to fp32
+        # Raise parameters of fp16 norm to fp32
         # something which tf's BN layer builder does
         if self.dtype == dtypes.float16 or self.dtype == dtypes.bfloat16:
             param_dtype = dtypes.float32
@@ -757,36 +749,28 @@ class BatchOnlineNorm(Layer):
                            else 1 for i in range(ndims)]
 
         if self.scale:
-            self.gamma = self.add_weight(name='gamma',
-                                         shape=param_shape, dtype=param_dtype,
-                                         initializer=self.gamma_initializer,
-                                         regularizer=self.gamma_regularizer,
-                                         constraint=self.gamma_constraint,
-                                         trainable=True)
+            self.gamma = self.add_weight(
+                name='gamma',
+                shape=param_shape, dtype=param_dtype,
+                initializer=self.gamma_initializer,
+                regularizer=self.gamma_regularizer,
+                constraint=self.gamma_constraint,
+                trainable=True
+            )
         else:
             self.gamma = None
 
         if self.center:
-            self.beta = self.add_weight(name='beta',
-                                        shape=param_shape, dtype=param_dtype,
-                                        initializer=self.beta_initializer,
-                                        regularizer=self.beta_regularizer,
-                                        constraint=self.beta_constraint,
-                                        trainable=True)
+            self.beta = self.add_weight(
+                name='beta',
+                shape=param_shape, dtype=param_dtype,
+                initializer=self.beta_initializer,
+                regularizer=self.beta_regularizer,
+                constraint=self.beta_constraint,
+                trainable=True
+            )
         else:
             self.beta = None
-
-        # configure the statistics shape and the axis along which to normalize
-        self.norm_ax, stat_shape, self.broadcast_shape  = [], [], []
-        for idx, ax in enumerate(input_shape):
-            if idx == 0:
-                stat_shape += [self.b_size]
-                self.broadcast_shape.append(1)
-            elif idx in self.axis:
-                stat_shape += [ax]
-                self.broadcast_shape.append(ax)
-            if idx not in self.axis and idx != 0:
-                self.norm_ax += [idx]
 
         self.built = True
 
@@ -827,13 +811,13 @@ class BatchOnlineNorm(Layer):
             precise_inputs = math_ops.cast(inputs, dtypes.float32)
 
         # streaming / control normalization
-        x_norm = self.control_normalization.apply(precise_inputs, training)
+        x_norm = self.normalization.apply(precise_inputs, training)
 
         # scale and bias
         x_scaled = x_norm * _bcast(self.gamma) if self.scale else x_norm
         x_bias = x_scaled + _bcast(self.beta) if self.center else x_scaled
 
-        outputs = self.layer_scaling(x_bias) if self.ls else x_bias
+        outputs = self.layer_scaling(x_bias) if self.ecm == 'ls' else x_bias
 
         # if needed, cast back to fp16
         if mixed_precision:
@@ -843,27 +827,31 @@ class BatchOnlineNorm(Layer):
 
 
 def batch_online_norm(inputs,
-                      training=False,
-                      alpha_fwd=0.999,
-                      alpha_bkw=0.99,
-                      layer_scaling=True,
-                      axis=-1,
-                      epsilon=1e-5,
-                      center=True,
-                      scale=True,
-                      beta_initializer='zeros',
-                      gamma_initializer='ones',
-                      stream_mu_initializer='zeros',
-                      stream_var_initializer='ones',
-                      u_ctrl_initializer='zeros',
-                      v_ctrl_initializer='zeros',
-                      beta_regularizer=None,
-                      gamma_regularizer=None,
-                      beta_constraint=None,
-                      gamma_constraint=None,
-                      trainable=True,
-                      b_size=2,
-                      name=None, **kwargs):
+                training=False,
+                alpha_fwd=0.999,
+                alpha_bkw=0.99,
+                axis=-1,
+                epsilon=1e-5,
+                stream_mu_initializer='zeros',
+                stream_var_initializer='ones',
+                u_ctrl_initializer='zeros',
+                v_ctrl_initializer='zeros',
+                center=True,
+                scale=True,
+                beta_initializer='zeros',
+                gamma_initializer='ones',
+                beta_regularizer=None,
+                gamma_regularizer=None,
+                beta_constraint=None,
+                gamma_constraint=None,
+                ecm='ls',
+                ls_eps=1e-05,
+                clamp_val=5,
+                batch_acceleration=True,
+                trainable=True,
+                b_size=1,
+                name=None,
+                **kwargs):
     """
     Functional interface to the Online Normalization Layer defined above
 
@@ -905,23 +893,30 @@ def batch_online_norm(inputs,
     Return:
         Normalization Layer output
     """
-    layer = BatchOnlineNorm(alpha_fwd=alpha_fwd,
-                            alpha_bkw=alpha_bkw,
-                            layer_scaling=layer_scaling,
-                            axis=axis, epsilon=epsilon,
-                            center=center, scale=scale,
-                            beta_initializer=beta_initializer,
-                            gamma_initializer=gamma_initializer,
-                            stream_mu_initializer=stream_mu_initializer,
-                            stream_var_initializer=stream_var_initializer,
-                            u_ctrl_initializer=u_ctrl_initializer,
-                            v_ctrl_initializer=v_ctrl_initializer,
-                            beta_regularizer=beta_regularizer,
-                            gamma_regularizer=gamma_regularizer,
-                            beta_constraint=beta_constraint,
-                            gamma_constraint=gamma_constraint,
-                            trainable=trainable,
-                            b_size=b_size,
-                            name=name,
-                            **kwargs)
+    layer = BatchOnlineNorm(
+        alpha_fwd=alpha_fwd,
+        alpha_bkw=alpha_bkw,
+        axis=axis,
+        epsilon=epsilon,
+        stream_mu_initializer=stream_mu_initializer,
+        stream_var_initializer=stream_var_initializer,
+        u_ctrl_initializer=u_ctrl_initializer,
+        v_ctrl_initializer=v_ctrl_initializer,
+        center=center,
+        scale=scale,
+        beta_initializer=beta_initializer,
+        gamma_initializer=gamma_initializer,
+        beta_regularizer=beta_regularizer,
+        gamma_regularizer=gamma_regularizer,
+        beta_constraint=beta_constraint,
+        gamma_constraint=gamma_constraint,
+        ecm=ecm,
+        ls_eps=ls_eps,
+        clamp_val=clamp_val,
+        batch_acceleration=batch_acceleration,
+        trainable=trainable,
+        b_size=b_size,
+        name=name,
+        **kwargs
+    )
     return layer.apply(inputs, training=training)

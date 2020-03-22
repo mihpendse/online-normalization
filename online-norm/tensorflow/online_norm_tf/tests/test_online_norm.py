@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 import tensorflow as tf
 
-from online_norm_tf import online_norm, batch_online_norm
+from online_norm_tf import online_norm
 
 
 
@@ -83,7 +83,7 @@ class BatchOnlineNormTest(unittest.TestCase):
         stat_shape = (b_size, channels)
 
         inputs = tf.placeholder(tf.float32, shape=in_shape)
-        bon_tf = batch_online_norm(inputs,
+        bon_tf = online_norm(inputs,
                                    alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                                    axis=1, training=True, b_size=B_SIZE)
 
@@ -139,7 +139,7 @@ class BatchOnlineNormTest(unittest.TestCase):
         in_shape = input_data[0:B_SIZE].shape
 
         b_inputs = tf.placeholder(tf.float32, shape=in_shape)
-        bon_tf = batch_online_norm(b_inputs,
+        bon_tf = online_norm(b_inputs,
                                    alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                                    axis=1, training=True, b_size=B_SIZE)
 
@@ -189,10 +189,10 @@ class BatchOnlineNormTest(unittest.TestCase):
         in_shape = input_data[0:B_SIZE].shape
         b_inputs = tf.placeholder(tf.float32, shape=in_shape)
         b_deltas = tf.placeholder(tf.float32, shape=in_shape)
-        bon_tf = batch_online_norm(b_inputs,
+        bon_tf = online_norm(b_inputs,
                                    alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                                    axis=1, training=True, b_size=B_SIZE,
-                                   layer_scaling=False)
+                                   ecm='')
         # set up on_tf's gradient functionality
         def grad_func(b_d_in, b_inputs):
             return tf.gradients(ys=bon_tf, xs=b_inputs, grad_ys=b_d_in)
@@ -206,7 +206,7 @@ class BatchOnlineNormTest(unittest.TestCase):
         on_tf = online_norm(inputs,
                             alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                             axis=1, training=True,
-                            layer_scaling=False)
+                            ecm='')
         # set up on_tf's gradient functionality
         def grad_func(d_in, inputs):
             return tf.gradients(ys=on_tf, xs=inputs, grad_ys=d_in)
@@ -278,10 +278,10 @@ class BatchOnlineNormTest(unittest.TestCase):
         in_shape = input_data[0:B_SIZE].shape
         b_inputs = tf.placeholder(tf.float32, shape=in_shape)
         b_deltas = tf.placeholder(tf.float32, shape=in_shape)
-        bon_tf = batch_online_norm(b_inputs,
+        bon_tf = online_norm(b_inputs,
                                    alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                                    axis=-1, training=True, b_size=B_SIZE,
-                                   layer_scaling=False)
+                                   ecm='')
         # set up on_tf's gradient functionality
         def grad_func(b_d_in, b_inputs):
             return tf.gradients(ys=bon_tf, xs=b_inputs, grad_ys=b_d_in)
@@ -295,7 +295,7 @@ class BatchOnlineNormTest(unittest.TestCase):
         on_tf = online_norm(inputs,
                             alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                             axis=-1, training=True,
-                            layer_scaling=False)
+                            ecm='')
         # set up on_tf's gradient functionality
         def grad_func(d_in, inputs):
             return tf.gradients(ys=on_tf, xs=inputs, grad_ys=d_in)
@@ -363,10 +363,10 @@ class BatchOnlineNormTest(unittest.TestCase):
         in_shape = input_data[0:B_SIZE].shape
         b_inputs = tf.placeholder(tf.float32, shape=in_shape)
         b_deltas = tf.placeholder(tf.float32, shape=in_shape)
-        bon_tf = batch_online_norm(b_inputs,
+        bon_tf = online_norm(b_inputs,
                                    alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                                    axis=-1, training=True, b_size=B_SIZE,
-                                   layer_scaling=False)
+                                   ecm='')
         # set up on_tf's gradient functionality
         def grad_func(b_d_in, b_inputs):
             return tf.gradients(ys=bon_tf, xs=b_inputs, grad_ys=b_d_in)
@@ -380,12 +380,11 @@ class BatchOnlineNormTest(unittest.TestCase):
         on_tf = online_norm(inputs,
                             alpha_fwd=alpha_fwd, alpha_bkw=alpha_bkw,
                             axis=-1, training=True,
-                            layer_scaling=False)
+                            ecm='')
         # set up on_tf's gradient functionality
         def grad_func(d_in, inputs):
             return tf.gradients(ys=on_tf, xs=inputs, grad_ys=d_in)
         on_grad = grad_func(deltas, inputs)
-
 
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())

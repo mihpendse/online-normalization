@@ -19,7 +19,7 @@ from online_norm_pytorch import OnlineNorm2d
 # With Learnable Parameters
 norm = OnlineNorm2d(100)
 # Without Learnable Parameters
-norm = OnlineNorm2d(100, weight=False, bias=False)
+norm = OnlineNorm2d(100, Affine=False)
 input = torch.randn(20, 100, 35, 45)
 output = norm(input)
 ```
@@ -32,7 +32,7 @@ from online_norm_pytorch import OnlineNorm1d
 # With Learnable Parameters
 norm = OnlineNorm1d(100)
 # Without Learnable Parameters
-norm = OnlineNorm1d(100, weight=False, bias=False)
+norm = OnlineNorm1d(100, Affine=False)
 input = torch.randn(20, 100)
 output = norm(input)
 ```

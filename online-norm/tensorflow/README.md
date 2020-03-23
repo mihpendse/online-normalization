@@ -82,3 +82,7 @@ or
 ```bash
 nosetests
 ```
+
+## Update
+
+OnlineNorm's default error checking mechanism updated to [activation clamping](LinkToActClampPaper) instead of layer scaling.

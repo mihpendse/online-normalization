@@ -37,3 +37,7 @@ output = norm(inputs)
 grad_out = numpy.random.randn(N, C)  # generate fake gradient
 grad_in = norm.backward(grad_out)
 ```
+
+## Update
+
+OnlineNorm's default error checking mechanism updated to [activation clamping](LinkToActClampPaper) instead of layer scaling.

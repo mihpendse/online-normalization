@@ -535,7 +535,7 @@ class OnlineNorm1D(nn.Module):
 
     def __init__(self, num_features, batch_size=None,
                  alpha_fwd=0.999, alpha_bkw=0.99, eps=1e-05,
-                 affine=True, ecm='ls', ls_eps=1e-05, clamp_val=5,
+                 affine=True, ecm='ac', ls_eps=1e-05, clamp_val=5,
                  batch_acceleration=True, **kwargs):
         super(OnlineNorm1D, self).__init__()
         self.num_features = num_features

@@ -63,7 +63,7 @@ parser.add_argument('--abkw', '--decay-factor-backward', default=0.99,
                     help='backward decay factor which sets control process '
                          'hyperparameter when using online normalization '
                          '(default: 0.99)')
-ecm_choices=['la', 'ac', 'none']
+ecm_choices=['ls', 'ac', 'none']
 parser.add_argument('--ecm', default='ls', type=str,
                     metavar='ECM', choices=ecm_choices,
                     help='Online Norm ErrorCheckingMechanism choices: ' +

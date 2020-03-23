@@ -988,7 +988,6 @@ class NormBatched(Layer):
             """
             afwd = self.afwd
             if self.mixed_precision:
-                mu, var = tf.nn.moments(inputs, self.norm_ax)
                 # compute batch statistics
                 mu, var = tf.nn.moments(tf.cast(inputs, self.fp_type),
                                               self.norm_ax, keep_dims=False)

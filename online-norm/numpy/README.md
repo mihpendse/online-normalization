@@ -38,6 +38,10 @@ grad_out = numpy.random.randn(N, C)  # generate fake gradient
 grad_in = norm.backward(grad_out)
 ```
 
-## Update
+## change log
 
-OnlineNorm's default error checking mechanism updated to [activation clamping](LinkToActClampPaper) instead of layer scaling.
+### 2020-03-25
+
+#### Added
+
+- Added [activation clamping](LinkToActClampPaper) as an error checking mechanism (ecm) and make it the defualt ecm.

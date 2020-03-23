@@ -8,7 +8,6 @@ TensorFlow Implementation of the Online Normalization Layer
 import warnings
 
 import tensorflow as tf
-from tensorflow.python.ops import math_ops
 from tensorflow.python.framework import dtypes, tensor_shape
 from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import constraints, initializers, regularizers
@@ -235,48 +234,101 @@ class Norm(Layer):
 
             alpha_bkw = self.alpha_bkw
             with tf.control_dependencies([deltas, self.outputs, self.s]):
-                # control with v
-                delta_temp = deltas
-                delta_temp -= (
-                    tf.reshape(self.v_ctrl, self.broadcast_shape) *
-                    self.outputs * (1 - alpha_bkw)
-                )
+                if self.mixed_precision:
+                    # Incorporates casting for mixed precision training
 
-                # update v control variables
-                # update the estimate of v controller, controlling
-                # orthogonality to normalizer output
-                update_v = tf.assign_add(
-                    self.v_ctrl,
-                    tf.reduce_mean(
-                        delta_temp * self.outputs,
-                        axis=self.norm_ax,
-                        keepdims=False
+                    # control with v
+                    delta_temp = deltas
+                    delta_temp -= tf.reshape(
+                        self.v_ctrl, self.broadcast_shape
+                    ) * self.outputs * (1 - alpha_bkw)
+
+                    # update v control variables
+                    # update the estimate of v controller, controlling
+                    # orthogonality to normalizer output
+                    update_v = tf.assign_add(
+                        self.v_ctrl,
+                        tf.cast(
+                            tf.reduce_mean(
+                                tf.cast(delta_temp * self.outputs, self.fp_type),
+                                axis=self.norm_ax,
+                                keepdims=False
+                            ),
+                            self.mp_type,
+                        )
                     )
-                )
-                # scale deltas
-                delta_temp_scaled = (
-                    delta_temp /
-                    tf.reshape(self.s, self.broadcast_shape)
-                )
-
-                # control with u
-                grad_delta = (
-                    delta_temp_scaled -
-                    (1 - alpha_bkw) * tf.reshape(self.u_ctrl, 
-                                                 self.broadcast_shape)
-                )
-
-                # update u control variables
-                # update the estimate u controller which controls
-                # orthogonality to the 1 vector
-                update_u = tf.assign_add(
-                    self.u_ctrl,
-                    tf.reduce_mean(
-                        grad_delta,
-                        axis=self.norm_ax,
-                        keepdims=False
+                    # scale deltas
+                    delta_temp_scaled = (
+                        delta_temp /
+                        tf.reshape(self.s, self.broadcast_shape)
                     )
-                )
+
+                    # control with u
+                    grad_delta = (
+                        delta_temp_scaled -
+                        (1 - alpha_bkw) * tf.reshape(self.u_ctrl,
+                                                     self.broadcast_shape)
+                    )
+
+                    # update u control variables
+                    # update the estimate u controller which controls
+                    # orthogonality to the 1 vector
+                    update_u = tf.assign_add(
+                        self.u_ctrl,
+                        tf.cast(
+                            tf.reduce_mean(
+                                tf.cast(grad_delta, self.fp_type),
+                                axis=self.norm_ax,
+                                keepdims=False
+                            ),
+                            self.mp_type,
+                        )
+                    )
+
+                else:
+
+                    # control with v
+                    delta_temp = deltas
+                    delta_temp -= (
+                        tf.reshape(self.v_ctrl, self.broadcast_shape) *
+                        self.outputs * (1 - alpha_bkw)
+                    )
+
+                    # update v control variables
+                    # update the estimate of v controller, controlling
+                    # orthogonality to normalizer output
+                    update_v = tf.assign_add(
+                        self.v_ctrl,
+                        tf.reduce_mean(
+                            delta_temp * self.outputs,
+                            axis=self.norm_ax,
+                            keepdims=False
+                        )
+                    )
+                    # scale deltas
+                    delta_temp_scaled = (
+                        delta_temp /
+                        tf.reshape(self.s, self.broadcast_shape)
+                    )
+
+                    # control with u
+                    grad_delta = (
+                        delta_temp_scaled -
+                        (1 - alpha_bkw) * tf.reshape(self.u_ctrl, 
+                                                     self.broadcast_shape)
+                    )
+
+                    # update u control variables
+                    # update the estimate u controller which controls
+                    # orthogonality to the 1 vector
+                    update_u = tf.assign_add(
+                        self.u_ctrl,
+                        tf.reduce_mean(
+                            grad_delta,
+                            axis=self.norm_ax,
+                            keepdims=False
+                        )
+                    )
 
             with tf.control_dependencies([update_u, update_v,
                                           grad_delta]):
@@ -315,8 +367,16 @@ class Norm(Layer):
 
                 out_assign = tf.assign(self.outputs, outputs)
 
-            # compute batch statistics
-            mu_bn, var_bn = tf.nn.moments(inputs, self.norm_ax, keep_dims=False)
+            if self.mixed_precision:
+                # compute batch statistics
+                mu_bn, var_bn = tf.nn.moments(tf.cast(inputs, self.fp_type),
+                                              self.norm_ax, keep_dims=False)
+                mu_bn = tf.cast(mu_bn, self.mp_type)
+                var_bn = tf.cast(var_bn, self.mp_type)
+            else:
+                # compute batch statistics
+                mu_bn, var_bn = tf.nn.moments(inputs,
+                                              self.norm_ax, keep_dims=False)
 
             with tf.control_dependencies([out_assign, mu_bn, var_bn]):
                 # get the new mean and variances
@@ -369,6 +429,11 @@ class Norm(Layer):
                 bcast_shape[a] = input_shape[a]
             return tf.reshape(inputs, bcast_shape)
 
+        # cast fp16 to fp32
+        precise_inputs = inputs
+        if self.mixed_precision:
+            precise_inputs = tf.cast(inputs, self.mp_type)
+
         # streaming / control normalization
         if training is not False:
             outputs = tf_utils.smart_cond(
@@ -392,6 +457,10 @@ class Norm(Layer):
                 None,
                 self.epsilon
             )
+            
+        # if needed, cast back to fp16
+        if self.mixed_precision:
+            outputs = tf.cast(outputs, self.mp_type)
 
         return outputs
 
@@ -774,10 +843,28 @@ class NormBatched(Layer):
                 beta: beta of this time step to be cached
             """
             # expect 0 << alpha ~<1 so we can move it to log space
-            alpha = 1 - (1. - abkw) * tf.reduce_mean(out * out, axis=norm_ax)
+            if self.mixed_precision:
+                alpha = (
+                    1 - (1. - abkw) * tf.cast(
+                        tf.reduce_mean(
+                            tf.cast(out * out, self.fp_type), axis=norm_ax),
+                            self.mp_type
+                        )
+                )
+            else:
+                alpha = 1 - (1. - abkw) * tf.reduce_mean(out * out, axis=norm_ax)
             alpha = tf.clip_by_value(alpha, clip_min, 1e32)
 
-            beta = tf.reduce_mean(delta * out, axis=norm_ax)
+            if self.mixed_precision:
+                beta = tf.cast(
+                    tf.reduce_mean(
+                        tf.cast(delta * out, self.fp_type),
+                        axis=norm_ax
+                    ),
+                    self.mp_type
+                )
+            else:
+                beta = tf.reduce_mean(delta * out, axis=norm_ax)
 
             alpha2log = tf.log(tf.concat([alpha_p, alpha], 0))
 
@@ -808,7 +895,13 @@ class NormBatched(Layer):
             VB = tf.concat([tf.reshape(v_p, [b_size, 1, num_features]),
                             Bcir], 1)
 
-            v_new = tf.reduce_sum(CD * VB, axis=1)
+            if self.mixed_precision:
+                v_new = tf.cast(
+                    tf.reduce_sum(tf.cast(CD * VB, self.fp_type), axis=1),
+                    self.mp_type
+                )
+            else:
+                v_new = tf.reduce_sum(CD * VB, axis=1)
 
             vp = tf.concat([tf.expand_dims(v_p[-1], 0), v_new[:-1]], 0)
 
@@ -845,10 +938,22 @@ class NormBatched(Layer):
                 delta_temp_scaled = delta_temp / reshape(self.s,
                                                          norm_ax=self.norm_ax)
 
-                # linearized u controller
-                dmean = tf.reduce_mean(delta_temp_scaled,
-                                       axis=tuple(self.norm_ax),
-                                       keepdims=False)
+                if self.mixed_precision:
+                    # linearized u controller
+                    dmean = tf.cast(
+                        tf.reduce_mean(
+                            tf.cast(
+                                delta_temp_scaled, self.fp_type),
+                                axis=tuple(self.norm_ax),
+                                keepdims=False
+                            ),
+                            self.mp_type
+                        )
+                else:
+                    # linearized u controller
+                    dmean = tf.reduce_mean(delta_temp_scaled,
+                                           axis=tuple(self.norm_ax),
+                                           keepdims=False)
                 _u_ctrl, u_ctrl = momentum_stat(self.u_ctrl_p, dmean,
                                                 self.u_ctrl, abkw,
                                                 self.abpow, self.abbatch)
@@ -882,7 +987,16 @@ class NormBatched(Layer):
                 backward_wrapper: function handle for custom backward pass
             """
             afwd = self.afwd
-            mu, var = tf.nn.moments(inputs, self.norm_ax)
+            if self.mixed_precision:
+                mu, var = tf.nn.moments(inputs, self.norm_ax)
+                # compute batch statistics
+                mu, var = tf.nn.moments(tf.cast(inputs, self.fp_type),
+                                              self.norm_ax, keep_dims=False)
+                mu = tf.cast(mu, self.mp_type)
+                var = tf.cast(var, self.mp_type)
+            else:
+                # compute batch statistics
+                mu, var = tf.nn.moments(inputs, self.norm_ax)
 
             # get instance statistics
             _mu_b, mu_b = momentum_stat(self.mu_p, mu, self.mu,
@@ -951,13 +1065,18 @@ class NormBatched(Layer):
                 bcast_shape[a] = input_shape[a]
             return tf.reshape(inputs, bcast_shape)
 
+        # cast fp16 to fp32
+        precise_inputs = inputs
+        if self.mixed_precision:
+            precise_inputs = tf.cast(inputs, self.mp_type)
+
         # streaming / control normalization
         if training is not False:
             outputs = tf_utils.smart_cond(
                 training,
                 lambda: self.normalization(precise_inputs),
                 lambda: tf.nn.batch_normalization(
-                    precise_inputs,
+                    inputs,
                     tf.reshape(self.mu[-1], self.broadcast_shape),
                     tf.reshape(self.var[-1], self.broadcast_shape),
                     None,
@@ -974,6 +1093,10 @@ class NormBatched(Layer):
                 None,
                 self.epsilon
             )
+        
+        # if needed, cast back to fp16
+        if self.mixed_precision:
+            outputs = tf.cast(outputs, self.mp_type)
 
         return outputs
 
@@ -1255,6 +1378,10 @@ class OnlineNorm(Layer):
         # apply error checking machanism
         if self.ecm:
             outputs = self.ecm(outputs)
+
+        # if needed, cast back to fp16
+        if self.mixed_precision:
+            outputs = tf.cast(outputs, self.mp_type)
 
         return outputs
 

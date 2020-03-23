@@ -15,6 +15,8 @@ from tensorflow.python.keras import constraints, initializers, regularizers
 from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.keras.layers import Layer
 
+from tensorflow.keras.mixed_precision.experimental import Policy
+
 
 class Norm(Layer):
     """
@@ -62,6 +64,20 @@ class Norm(Layer):
                  u_ctrl_initializer='zeros', v_ctrl_initializer='zeros',
                  b_size=None, trainable=True, name=None, **kwargs):
         super(Norm, self).__init__(trainable=trainable, name=name, **kwargs)
+        # setup mixed precesion
+        self.dtype_policy = self._mixed_precision_policy \
+            if self._mixed_precision_policy.name == "infer_float32_vars" \
+                else self._dtype
+
+        if isinstance(self.dtype_policy, Policy):
+            self.mixed_precision = True
+            self.fp_type = tf.float32 # full precision 
+            self.mp_type = tf.float16 # reduced precision
+        else:
+            self.mixed_precision = False
+            self.fp_type = self._dtype if self._dtype else tf.float32 # full precision 
+            self.mp_type = self.fp_type # reduced precision
+
         if b_size > 1:
             warnings.warn('Not running true OnlineNormalization Algorithm')
         self.b_size = b_size
@@ -353,13 +369,6 @@ class Norm(Layer):
                 bcast_shape[a] = input_shape[a]
             return tf.reshape(inputs, bcast_shape)
 
-        mixed_precision = (inputs.dtype == dtypes.float16 or inputs.dtype == dtypes.bfloat16)
-
-        # cast fp16 to fp32
-        precise_inputs = inputs
-        if mixed_precision:
-            precise_inputs = math_ops.cast(inputs, dtypes.float32)
-
         # streaming / control normalization
         if training is not False:
             outputs = tf_utils.smart_cond(
@@ -383,10 +392,6 @@ class Norm(Layer):
                 None,
                 self.epsilon
             )
-
-        # if needed, cast back to fp16
-        if mixed_precision:
-            outputs = math_ops.cast(outputs, inputs.dtype)
 
         return outputs
 
@@ -439,6 +444,20 @@ class NormBatched(Layer):
                  b_size=None, trainable=True, name=None, **kwargs):
         super(NormBatched, self).__init__(trainable=trainable,
                                           name=name, **kwargs)
+        # setup mixed precesion
+        self.dtype_policy = self._mixed_precision_policy \
+            if self._mixed_precision_policy.name == "infer_float32_vars" \
+                else self._dtype
+
+        if isinstance(self.dtype_policy, Policy):
+            self.mixed_precision = True
+            self.fp_type = tf.float32 # full precision 
+            self.mp_type = tf.float16 # reduced precision
+        else:
+            self.mixed_precision = False
+            self.fp_type = self._dtype if self._dtype else tf.float32 # full precision 
+            self.mp_type = self.fp_type # reduced precision
+
         self.b_size = b_size
         assert self.b_size > 1, "Layer created to handle batches of data"
         self.axis = axis
@@ -932,13 +951,6 @@ class NormBatched(Layer):
                 bcast_shape[a] = input_shape[a]
             return tf.reshape(inputs, bcast_shape)
 
-        mixed_precision = (inputs.dtype == dtypes.float16 or inputs.dtype == dtypes.bfloat16)
-
-        # cast fp16 to fp32
-        precise_inputs = inputs
-        if mixed_precision:
-            precise_inputs = math_ops.cast(inputs, dtypes.float32)
-
         # streaming / control normalization
         if training is not False:
             outputs = tf_utils.smart_cond(
@@ -962,10 +974,6 @@ class NormBatched(Layer):
                 None,
                 self.epsilon
             )
-
-        # if needed, cast back to fp16
-        if mixed_precision:
-            outputs = math_ops.cast(outputs, inputs.dtype)
 
         return outputs
 
@@ -1035,6 +1043,30 @@ class OnlineNorm(Layer):
                  b_size=1, trainable=True, name=None, **kwargs):
         super(OnlineNorm, self).__init__(trainable=trainable,
                                          name=name, **kwargs)
+        # setup mixed precesion
+        self.dtype_policy = self._mixed_precision_policy \
+            if self._mixed_precision_policy.name == "infer_float32_vars" \
+                else self._dtype
+
+        if isinstance(self.dtype_policy, Policy):
+            self.mixed_precision = True
+            self.fp_type = tf.float32 # full precision 
+            self.mp_type = tf.float16 # reduced precision
+        else:
+            self.mixed_precision = False
+            self.fp_type = self._dtype if self._dtype else tf.float32 # full precision 
+            self.mp_type = self.fp_type # reduced precision
+
+        if self.mixed_precision:
+            assert beta_regularizer is None, \
+                "beta_regularizer not supported for mixed precision"
+            assert gamma_regularizer is None, \
+                "gamma_regularizer not supported for mixed precision"
+            assert beta_constraint is None, \
+                "beta_constraint not supported for mixed precision"
+            assert gamma_constraint is None, \
+                "gamma_constraint not supported for mixed precision"
+
         self.axis = axis
 
         assert isinstance(b_size, int), 'batch size should be an int'
@@ -1073,31 +1105,6 @@ class OnlineNorm(Layer):
         self.ls_eps = ls_eps
         self.clamp_val = clamp_val
 
-    def layer_scaling(self, inputs):
-        """
-        Scale full layer by 2nd moment
-
-        Arguments:
-            inputs: input activations
-
-        Returns
-            activations scaled by their second moment
-        """
-        scale = tf.reduce_mean(inputs * inputs,
-                               axis=list(range(len(inputs.get_shape())))[1:],
-                               keepdims=True)
-        return inputs * tf.rsqrt(scale + self.ls_eps)
-
-    def activation_clamp(self, inputs):
-        """
-        Clips the output of CN.
-        Arguments:
-            inputs: input activations
-        Returns
-            clamped activations
-        """
-        return tf.clip_by_value(inputs, -self.clamp_val, self.clamp_val)
-
     def build(self, input_shape):
         """
         Allocation of variables for the normalizer.
@@ -1124,12 +1131,7 @@ class OnlineNorm(Layer):
         if len(self.axis) != len(set(self.axis)):
             raise ValueError('Duplicate axis: %s' % self.axis)
 
-        # Raise parameters of fp16 norm to fp32
-        # something which tf's BN layer builder does
-        if self.dtype == dtypes.float16 or self.dtype == dtypes.bfloat16:
-            param_dtype = dtypes.float32
-        else:
-            param_dtype = self.dtype or dtypes.float32
+        param_dtype = self.fp_type
 
         axis_to_dim = {x: input_shape[x] for x in self.axis}
         for x in axis_to_dim:
@@ -1170,6 +1172,41 @@ class OnlineNorm(Layer):
             self.beta = None
 
         self.built = True
+    
+    def layer_scaling(self, inputs):
+        """
+        Scale full layer by 2nd moment
+
+        Arguments:
+            inputs: input activations
+
+        Returns
+            activations scaled by their second moment
+        """
+        if self.mixed_precision:
+            scale = tf.cast(
+                tf.reduce_mean(
+                    tf.cast(inputs * inputs, self.fp_type),
+                    axis=list(range(len(inputs.get_shape())))[1:],
+                    keepdims=True
+                ),
+                self.mp_type
+            )
+        else:
+            scale = tf.reduce_mean(inputs * inputs,
+                                   axis=list(range(len(inputs.get_shape())))[1:],
+                                   keepdims=True)
+        return inputs * tf.rsqrt(scale + self.ls_eps)
+
+    def activation_clamp(self, inputs):
+        """
+        Clips the output of CN.
+        Arguments:
+            inputs: input activations
+        Returns
+            clamped activations
+        """
+        return tf.clip_by_value(inputs, -self.clamp_val, self.clamp_val)
 
     def call(self, inputs, training=None):
         """
@@ -1200,25 +1237,24 @@ class OnlineNorm(Layer):
                 bcast_shape[a] = input_shape[a]
             return tf.reshape(inputs, bcast_shape)
 
-        mixed_precision = (inputs.dtype == dtypes.float16 or inputs.dtype == dtypes.bfloat16)
-
-        # cast fp16 to fp32
-        precise_inputs = inputs
-        if mixed_precision:
-            precise_inputs = math_ops.cast(inputs, dtypes.float32)
-
         # streaming / control normalization
-        x_norm = self.normalization.apply(precise_inputs, training)
+        outputs = self.normalization.apply(inputs, training)
 
         # scale and bias
-        x_scaled = x_norm * _bcast(self.gamma) if self.scale else x_norm
-        x_bias = x_scaled + _bcast(self.beta) if self.center else x_scaled
+        if self.scale:
+            if self.mixed_precision:
+                outputs *= tf.cast(_bcast(self.gamma), self.mp_type)
+            else:
+                outputs *= _bcast(self.gamma)
+        if self.center:
+            if self.mixed_precision:
+                outputs += tf.cast(_bcast(self.beta), self.mp_type)
+            else:
+                outputs += _bcast(self.beta)
 
-        outputs = self.ecm(x_bias) if self.ecm is not None else x_bias
-
-        # if needed, cast back to fp16
-        if mixed_precision:
-            outputs = math_ops.cast(outputs, inputs.dtype)
+        # apply error checking machanism
+        if self.ecm:
+            outputs = self.ecm(outputs)
 
         return outputs
 

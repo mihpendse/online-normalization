@@ -828,6 +828,7 @@ class NormBatched(Layer):
                 - There are edge cases where the math breaks down
                 i.e. we take a log of alpha, therefore we must clip alpha such
                 that alpha > 0. alpha = 1 - (1 - abkw) * (out ** 2)
+
             Arguments:
                 deltas: input deltas to the v controller
                 out: the output of the forward pass
@@ -838,6 +839,7 @@ class NormBatched(Layer):
                 num_features: number of features
                 abkw: decay factor for the controller
                 clip_min: the epsilon by which to clip alpha
+
             Returns
                 grad_delta: output deltas for inputs
                 v_new: v control current
@@ -915,8 +917,10 @@ class NormBatched(Layer):
             """
             Wrapper for the custom backwards pass using ctrl process
             Note: deltas depends on fprop output
+
             Arguments:
                 deltas: input deltas from the current batch
+
             Returns
                 grad_delta: output deltas for inputs
             """
@@ -978,8 +982,10 @@ class NormBatched(Layer):
         def forward(inputs):
             """
             Function for forward pass.
+
             Arguments:
                 inputs: activations of the current batch
+
             Returns:
                 netout: normalized activations
                 backward_wrapper: function handle for custom backward pass
@@ -1033,9 +1039,11 @@ class NormBatched(Layer):
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
+
         Arguments:
             inputs: activations into the layer
             training: Boolean to set training or inference mode
+
         Returns:
             normalized activations with multiplicative scale and additive bias
             corrections
@@ -1100,6 +1108,7 @@ class OnlineNorm(Layer):
     """
     Implementation of the 
     [Online Normalization Layer](https://arxiv.org/abs/1905.05894) 
+
     Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
@@ -1136,12 +1145,14 @@ class OnlineNorm(Layer):
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
+
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
                  does not include the samples axis) when using this layer as
                  the first layer in a model.
     Output shape:
         Same shape as input.
+
     References:
         - [Online Normalization for Training Neural Networks](https://arxiv.org/abs/1905.05894)
     """
@@ -1292,8 +1303,10 @@ class OnlineNorm(Layer):
     def layer_scaling(self, inputs):
         """
         Scale full layer by 2nd moment
+
         Arguments:
             inputs: input activations
+
         Returns
             activations scaled by their second moment
         """
@@ -1315,8 +1328,10 @@ class OnlineNorm(Layer):
     def activation_clamp(self, inputs):
         """
         Clips the output of CN.
+
         Arguments:
             inputs: input activations
+
         Returns
             clamped activations
         """
@@ -1325,9 +1340,11 @@ class OnlineNorm(Layer):
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
+
         Arguments:
             inputs: activations into the layer
             training: Boolean to set training or inference mode
+
         Returns:
             normalized activations with multiplicative scale and additive bias
             corrections
@@ -1405,6 +1422,7 @@ def online_norm(
 ):
     """
     Functional interface to the Online Normalization Layer defined above
+
     Arguments:
         inputs: The inputs to the layer.
         training: a boolean value that when set to `True`, the
@@ -1439,6 +1457,7 @@ def online_norm(
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable). (Default: True)
         b_size: batch size which is being trained. (Default: 1)
+
     Return:
         Normalization Layer output
     """

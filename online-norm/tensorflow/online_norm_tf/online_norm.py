@@ -2,6 +2,7 @@
 Released under BSD 3-Clause License,
 Copyright (c) 2019 Cerebras Systems Inc.
 All rights reserved.
+
 TensorFlow Implementation of the Online Normalization Layer
 """
 import warnings
@@ -12,7 +13,6 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import constraints, initializers, regularizers
 from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.keras.layers import Layer
-from cerebras.models.layers.tf.BaseLayer import BaseLayer
 from tensorflow.keras.mixed_precision.experimental import Policy
 
 

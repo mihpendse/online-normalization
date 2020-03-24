@@ -726,19 +726,24 @@ class NormBatched(Layer):
         Normalization algorithm) as described in the paper:
         `Online Normalization for Training Neural Networks`.
         This class implements a version of the mathematics below.
+
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
             \sigma^2_t = \alpha * \sigma^2_{t-1} + \alpha * (1 - \alpha) * (x_t - \mu_{t-1}) ^ 2
             \mu_t = \alpha * \mu_{t-1} + (1 - \alpha) * x_t
+
         The mean and standard-deviation are estimated per-feature.
+
         The math above represents the calculations occurring in the layer. To
         speed up computation with batched training we linearize the computation
         along the batch dimension and use convolutions in place of loops to
         distribute the computation across compute fabric.
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.
+
         Arguments
             inputs: input activations
+
         Returns:
             netout: list: [forward normalized activations,
                            backward function]
@@ -749,6 +754,7 @@ class NormBatched(Layer):
             Helper function for streaming across the batch dimension for a
             momentum system using linear operations.
             Useful for GPU acceleration of streaming control layer.
+
             Used in mu, var, and u_ctrl updates
             Note: v_ctrl needs separate controller
 
@@ -793,6 +799,7 @@ class NormBatched(Layer):
 
             Returns
                 d: deltas convolved along the 2b dimension with a 1 filter
+
             """
             c_input = tf.transpose(tf.reshape(tf.transpose(input,
                                                            perm=[1, 0, 2]),

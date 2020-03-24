@@ -205,7 +205,7 @@ class Norm(Layer):
         Normalization algorithm) as described in the paper:
         `Online Normalization for Training Neural Networks`.
         This class implements a version of the mathematics below.
-        
+ 
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
             \sigma^2_t = (
@@ -217,10 +217,10 @@ class Norm(Layer):
         The mean and standard-deviation are estimated per-feature.
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.
-    
+
         Arguments
             inputs: input activations
-        
+ 
         Returns:
             netout: list: [forward normalized activations,
                            backward function]

@@ -207,6 +207,7 @@ class Norm(Layer):
 
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
+
             \sigma^2_t = (
                 \alpha * \sigma^2_{t-1} +
                 \alpha * (1 - \alpha) * (x_t - \mu_{t-1}) ^ 2
@@ -214,6 +215,7 @@ class Norm(Layer):
             \mu_t = \alpha * \mu_{t-1} + (1 - \alpha) * x_t
 
         The mean and standard-deviation are estimated per-feature.
+
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.
 

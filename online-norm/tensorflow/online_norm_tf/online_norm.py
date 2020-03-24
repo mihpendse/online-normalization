@@ -2,7 +2,6 @@
 Released under BSD 3-Clause License,
 Copyright (c) 2019 Cerebras Systems Inc.
 All rights reserved.
-
 TensorFlow Implementation of the Online Normalization Layer
 """
 import warnings
@@ -13,7 +12,7 @@ from tensorflow.python.keras import backend as K
 from tensorflow.python.keras import constraints, initializers, regularizers
 from tensorflow.python.keras.utils import tf_utils
 from tensorflow.python.keras.layers import Layer
-
+from cerebras.models.layers.tf.BaseLayer import BaseLayer
 from tensorflow.keras.mixed_precision.experimental import Policy
 
 
@@ -21,11 +20,9 @@ class Norm(Layer):
     """
     Custom backprop normalizer implementation of the 
     [Online Normalization Algorithm](https://arxiv.org/abs/1905.05894) 
-
     Note:
         Implemented with custom gradients, using the @tf.custom_gradient
         decorator which requires tf.__version__ >= 1.7
-
     Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
@@ -45,14 +42,12 @@ class Norm(Layer):
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
-
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
                  does not include the samples axis) when using this layer as
                  the first layer in a model.
     Output shape:
         Same shape as input.
-
     References:
         - [Online Normalization for Training Neural Networks](https://arxiv.org/abs/1905.05894)
     """
@@ -144,16 +139,18 @@ class Norm(Layer):
             'mu',
             stat_shape,
             initializer=self.stream_mu_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.var = self.add_variable(
             'var',
             stat_shape,
             initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         # bprop cache variables
@@ -161,16 +158,18 @@ class Norm(Layer):
             's',
             stat_shape,
             initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.outputs = self.add_variable(
             'outputs',
             [self.b_size] + input_shape[1:],
             initializer=tf.zeros_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         # u and v control variables
@@ -178,16 +177,18 @@ class Norm(Layer):
             'u_ctrl',
             stat_shape,
             initializer=self.u_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.v_ctrl = self.add_variable(
             'v_ctrl',
             stat_shape,
             initializer=self.v_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.built = True
@@ -198,24 +199,18 @@ class Norm(Layer):
         Normalization algorithm) as described in the paper:
         `Online Normalization for Training Neural Networks`.
         This class implements a version of the mathematics below.
-
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
-
             \sigma^2_t = (
                 \alpha * \sigma^2_{t-1} +
                 \alpha * (1 - \alpha) * (x_t - \mu_{t-1}) ^ 2
             )
             \mu_t = \alpha * \mu_{t-1} + (1 - \alpha) * x_t
-
         The mean and standard-deviation are estimated per-feature.
-
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.
-
         Arguments
             inputs: input activations
-
         Returns:
             netout: list: [forward normalized activations,
                            backward function]
@@ -224,10 +219,8 @@ class Norm(Layer):
             """
             Wrapper for the custom backwards pass using ctrl process
             Note: deltas depends on fprop output
-
             Arguments:
                 deltas: input deltas from the current batch
-
             Returns
                 grad_delta: output deltas for inputs
             """
@@ -339,10 +332,8 @@ class Norm(Layer):
         def forward(inputs):
             """
             Function for forward pass.
-
             Arguments:
                 inputs: activations of the current batch
-
             Returns:
                 netout: normalized activations
                 backward_wrapper: function handle for custom backward pass
@@ -400,11 +391,9 @@ class Norm(Layer):
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
-
         Arguments:
             inputs: activations into the layer
             training: Boolean to set training or inference mode
-
         Returns:
             normalized activations with multiplicative scale and additive bias
             corrections
@@ -470,11 +459,9 @@ class NormBatched(Layer):
     Custom backprop normalizer implementation of the
     [Online Normalization Algorithm](https://arxiv.org/abs/1905.05894)
     with accepleration for batch processing.
-
     Note:
         Implemented with custom gradients, using the @tf.custom_gradient
         decorator which requires tf.__version__ >= 1.7
-
     Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
@@ -494,14 +481,12 @@ class NormBatched(Layer):
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
-
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
                  does not include the samples axis) when using this layer as
                  the first layer in a model.
     Output shape:
         Same shape as input.
-
     References:
         - [Online Normalization for Training Neural Networks](https://arxiv.org/abs/1905.05894)
     """
@@ -513,6 +498,7 @@ class NormBatched(Layer):
                  b_size=None, trainable=True, name=None, **kwargs):
         super(NormBatched, self).__init__(trainable=trainable,
                                           name=name, **kwargs)
+        
         # setup mixed precesion
         self.dtype_policy = self._mixed_precision_policy \
             if self._mixed_precision_policy.name == "infer_float32_vars" \
@@ -526,7 +512,6 @@ class NormBatched(Layer):
             self.mixed_precision = False
             self.fp_type = self._dtype if self._dtype else tf.float32 # full precision 
             self.mp_type = self.fp_type # reduced precision
-
         self.b_size = b_size
         assert self.b_size > 1, "Layer created to handle batches of data"
         self.axis = axis
@@ -598,34 +583,36 @@ class NormBatched(Layer):
                 self.norm_ax += [idx]
 
         # batch streaming parameters fpass
-        self.afbatch = ((self.afwd ** self.b_size) *
-                        tf.constant([1.], shape=[self.b_size, self.ch]))
-        self.afpow = tf.reshape(self.afwd ** tf.range(self.b_size - 1, -1, -1,
+        self.afbatch = tf.cast((self.afwd ** self.b_size) *
+                        tf.constant([1.], shape=[self.b_size, self.ch]),self.mp_type)
+        self.afpow = tf.cast(tf.reshape(self.afwd ** tf.range(self.b_size - 1, -1, -1,
                                                     dtype=tf.float32),
-                                (self.b_size, 1, 1))
+                                (self.b_size, 1, 1)),self.mp_type)
 
         # batch streaming parameters fpass
-        self.abbatch = ((self.abkw ** self.b_size) *
-                        tf.constant([1.], shape=[self.b_size, self.ch]))
-        self.abpow = tf.reshape(self.abkw ** tf.range(self.b_size - 1, -1, -1,
+        self.abbatch = tf.cast((self.abkw ** self.b_size) *
+                        tf.constant([1.], shape=[self.b_size, self.ch]),self.mp_type)
+        self.abpow = tf.cast(tf.reshape(self.abkw ** tf.range(self.b_size - 1, -1, -1,
                                                     dtype=tf.float32),
-                                (self.b_size, 1, 1))
+                                (self.b_size, 1, 1)),self.mp_type)
 
         # streaming normalization statistics
         self.mu = self.add_variable(
             'mu',
             stat_shape,
             initializer=self.stream_mu_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.var = self.add_variable(
             'var',
             stat_shape,
             initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         # bprop cache variables
@@ -633,16 +620,18 @@ class NormBatched(Layer):
             's',
             stat_shape,
             initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.outputs = self.add_variable(
             'outputs',
             [self.b_size] + input_shape[1:],
             initializer=tf.zeros_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         # capture previous batch statistics
@@ -650,15 +639,17 @@ class NormBatched(Layer):
             'mu_p',
             stat_shape,
             initializer=self.stream_mu_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
         self.var_p = self.add_variable(
             'var_p',
             stat_shape,
             initializer=self.stream_var_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         # u control variables
@@ -666,16 +657,18 @@ class NormBatched(Layer):
             'u_ctrl',
             stat_shape,
             initializer=self.u_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
         # capture stats of d for previous time step needed for u controller
         self.u_ctrl_p = self.add_variable(
             'u_ctrl_p',
             stat_shape,
             initializer=self.u_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         # v control variables
@@ -683,24 +676,27 @@ class NormBatched(Layer):
             'v_p',
             stat_shape,
             initializer=self.v_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.alpha_p = self.add_variable(
             'alpha_p',
             stat_shape,
             initializer=tf.ones_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.beta_p = self.add_variable(
             'beta_p',
             stat_shape,
             initializer=self.v_ctrl_initializer,
-            dtype=param_dtype,
-            trainable=False
+            dtype=self.mp_type,
+            trainable=False,
+            experimental_autocast=False
         )
 
         self.built = True
@@ -711,26 +707,19 @@ class NormBatched(Layer):
         Normalization algorithm) as described in the paper:
         `Online Normalization for Training Neural Networks`.
         This class implements a version of the mathematics below.
-
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
-
             \sigma^2_t = \alpha * \sigma^2_{t-1} + \alpha * (1 - \alpha) * (x_t - \mu_{t-1}) ^ 2
             \mu_t = \alpha * \mu_{t-1} + (1 - \alpha) * x_t
-
         The mean and standard-deviation are estimated per-feature.
-
         The math above represents the calculations occurring in the layer. To
         speed up computation with batched training we linearize the computation
         along the batch dimension and use convolutions in place of loops to
         distribute the computation across compute fabric.
-
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.
-
         Arguments
             inputs: input activations
-
         Returns:
             netout: list: [forward normalized activations,
                            backward function]
@@ -741,10 +730,8 @@ class NormBatched(Layer):
             Helper function for streaming across the batch dimension for a
             momentum system using linear operations.
             Useful for GPU acceleration of streaming control layer.
-
             Used in mu, var, and u_ctrl updates
             Note: v_ctrl needs separate controller
-
             Arguments
                 stat_prev: previous time steps statistics
                 stat_curr: this time steps statistics
@@ -752,13 +739,11 @@ class NormBatched(Layer):
                 momentum: the momentum of the system
                 momentum_pow: momentum ** range(b_size - 1, -1, -1)
                 momentum_batch: momentum ** b_size
-
             Returns:
                 stream_t1: 1 time step stale estimates of statistics
                            one for each example in batch
                 stream_curr: estimates of statistics
                              one for each example in batch
-
             """
 
             tmp = tf.concat([stat_prev, stat_curr], axis=0)[1:]
@@ -778,21 +763,18 @@ class NormBatched(Layer):
             """
             Helper function to convolve along 2b dimension with a b length
             vector of 1's
-
             Arguments:
                 input: input of shape (b, 2b, c)
                 b: b_size
                 c: number of features
-
             Returns
                 d: deltas convolved along the 2b dimension with a 1 filter
-
             """
             c_input = tf.transpose(tf.reshape(tf.transpose(input,
                                                            perm=[1, 0, 2]),
                                               [2 * b, -1]))
             out = tf.nn.conv1d(tf.expand_dims(c_input, 2),
-                               tf.constant([1.], shape=[b, 1, 1]),
+                               tf.constant([1.], dtype=self.mp_type, shape=[b, 1, 1]),
                                stride=1, padding='VALID', data_format="NWC")
             return tf.transpose(tf.reshape(tf.transpose(tf.squeeze(out)),
                                            [b + 1, b, c]),
@@ -817,14 +799,12 @@ class NormBatched(Layer):
                        abkw=self.abkw, norm_ax=self.norm_ax, clip_min=1e-32):
             """
             Helper function to linearize the v controller
-
             Note:
                 - This is originally created / hard-coded for channel_first
                 operation
                 - There are edge cases where the math breaks down
                 i.e. we take a log of alpha, therefore we must clip alpha such
                 that alpha > 0. alpha = 1 - (1 - abkw) * (out ** 2)
-
             Arguments:
                 deltas: input deltas to the v controller
                 out: the output of the forward pass
@@ -835,7 +815,6 @@ class NormBatched(Layer):
                 num_features: number of features
                 abkw: decay factor for the controller
                 clip_min: the epsilon by which to clip alpha
-
             Returns
                 grad_delta: output deltas for inputs
                 v_new: v control current
@@ -878,7 +857,7 @@ class NormBatched(Layer):
                                   num_features])[1:b_size + 1, :b_size]
             # concatenate wit zeros for conv op
             Acirlog2 = tf.concat([Acirlog,
-                                  tf.constant([0.],
+                                  tf.constant([0.],dtype=self.mp_type,
                                               shape=[b_size,
                                                      b_size, num_features])],
                                  1)
@@ -913,10 +892,8 @@ class NormBatched(Layer):
             """
             Wrapper for the custom backwards pass using ctrl process
             Note: deltas depends on fprop output
-
             Arguments:
                 deltas: input deltas from the current batch
-
             Returns
                 grad_delta: output deltas for inputs
             """
@@ -978,10 +955,8 @@ class NormBatched(Layer):
         def forward(inputs):
             """
             Function for forward pass.
-
             Arguments:
                 inputs: activations of the current batch
-
             Returns:
                 netout: normalized activations
                 backward_wrapper: function handle for custom backward pass
@@ -1035,11 +1010,9 @@ class NormBatched(Layer):
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
-
         Arguments:
             inputs: activations into the layer
             training: Boolean to set training or inference mode
-
         Returns:
             normalized activations with multiplicative scale and additive bias
             corrections
@@ -1104,7 +1077,6 @@ class OnlineNorm(Layer):
     """
     Implementation of the 
     [Online Normalization Layer](https://arxiv.org/abs/1905.05894) 
-
     Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
@@ -1141,14 +1113,12 @@ class OnlineNorm(Layer):
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
-
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
                  does not include the samples axis) when using this layer as
                  the first layer in a model.
     Output shape:
         Same shape as input.
-
     References:
         - [Online Normalization for Training Neural Networks](https://arxiv.org/abs/1905.05894)
     """
@@ -1206,6 +1176,7 @@ class OnlineNorm(Layer):
             v_ctrl_initializer=v_ctrl_initializer,
             b_size=b_size,
             trainable=trainable,
+            **kwargs
         )
 
         self.center = center
@@ -1298,10 +1269,8 @@ class OnlineNorm(Layer):
     def layer_scaling(self, inputs):
         """
         Scale full layer by 2nd moment
-
         Arguments:
             inputs: input activations
-
         Returns
             activations scaled by their second moment
         """
@@ -1333,11 +1302,9 @@ class OnlineNorm(Layer):
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
-
         Arguments:
             inputs: activations into the layer
             training: Boolean to set training or inference mode
-
         Returns:
             normalized activations with multiplicative scale and additive bias
             corrections
@@ -1415,7 +1382,6 @@ def online_norm(
 ):
     """
     Functional interface to the Online Normalization Layer defined above
-
     Arguments:
         inputs: The inputs to the layer.
         training: a boolean value that when set to `True`, the
@@ -1450,7 +1416,6 @@ def online_norm(
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable). (Default: True)
         b_size: batch size which is being trained. (Default: 1)
-
     Return:
         Normalization Layer output
     """

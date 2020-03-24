@@ -199,11 +199,13 @@ class Norm(Layer):
         self.built = True
 
     def normalization(self, inputs):
+
         r"""Applies Normalization (the per feature exponential moving
         average, ema, forward and control process backward part of the Online
         Normalization algorithm) as described in the paper:
         `Online Normalization for Training Neural Networks`.
         This class implements a version of the mathematics below.
+        
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
             \sigma^2_t = (
@@ -211,6 +213,7 @@ class Norm(Layer):
                 \alpha * (1 - \alpha) * (x_t - \mu_{t-1}) ^ 2
             )
             \mu_t = \alpha * \mu_{t-1} + (1 - \alpha) * x_t
+        
         The mean and standard-deviation are estimated per-feature.
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.

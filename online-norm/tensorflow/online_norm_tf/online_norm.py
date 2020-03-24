@@ -475,10 +475,12 @@ class NormBatched(Layer):
     """
     Custom backprop normalizer implementation of the
     [Online Normalization Algorithm](https://arxiv.org/abs/1905.05894)
-    with accepleration for batch processing.
+    with acceleration for batch processing.
+
     Note:
         Implemented with custom gradients, using the @tf.custom_gradient
         decorator which requires tf.__version__ >= 1.7
+
     Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
@@ -531,6 +533,7 @@ class NormBatched(Layer):
             self.mixed_precision = False
             self.fp_type = self._dtype if self._dtype else tf.float32 # full precision 
             self.mp_type = self.fp_type # reduced precision
+
         self.b_size = b_size
         assert self.b_size > 1, "Layer created to handle batches of data"
         self.axis = axis

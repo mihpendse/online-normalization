@@ -199,7 +199,6 @@ class Norm(Layer):
         self.built = True
 
     def normalization(self, inputs):
-
         r"""Applies Normalization (the per feature exponential moving
         average, ema, forward and control process backward part of the Online
         Normalization algorithm) as described in the paper:
@@ -220,7 +219,7 @@ class Norm(Layer):
 
         Arguments
             inputs: input activations
- 
+
         Returns:
             netout: list: [forward normalized activations,
                            backward function]

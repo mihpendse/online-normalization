@@ -230,8 +230,10 @@ class Norm(Layer):
             """
             Wrapper for the custom backwards pass using ctrl process
             Note: deltas depends on fprop output
+
             Arguments:
                 deltas: input deltas from the current batch
+
             Returns
                 grad_delta: output deltas for inputs
             """
@@ -343,8 +345,10 @@ class Norm(Layer):
         def forward(inputs):
             """
             Function for forward pass.
+
             Arguments:
                 inputs: activations of the current batch
+
             Returns:
                 netout: normalized activations
                 backward_wrapper: function handle for custom backward pass

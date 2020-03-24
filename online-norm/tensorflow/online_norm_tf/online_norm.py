@@ -45,7 +45,7 @@ class Norm(Layer):
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
- 
+
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
                  does not include the samples axis) when using this layer as

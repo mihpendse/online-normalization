@@ -765,6 +765,7 @@ class NormBatched(Layer):
                            one for each example in batch
                 stream_curr: estimates of statistics
                              one for each example in batch
+
             """
 
             tmp = tf.concat([stat_prev, stat_curr], axis=0)[1:]
@@ -822,6 +823,7 @@ class NormBatched(Layer):
                        abkw=self.abkw, norm_ax=self.norm_ax, clip_min=1e-32):
             """
             Helper function to linearize the v controller
+
             Note:
                 - This is originally created / hard-coded for channel_first
                 operation
@@ -845,6 +847,7 @@ class NormBatched(Layer):
                 v_new: v control current
                 alpha: alpha of this time step to be cached
                 beta: beta of this time step to be cached
+
             """
             # expect 0 << alpha ~<1 so we can move it to log space
             if self.mixed_precision:

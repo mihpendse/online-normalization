@@ -729,6 +729,7 @@ class NormBatched(Layer):
 
         .. math::
             y_t = \frac{x_t - \mu_{t-1}}{\sqrt{\sigma^2_{t-1} + \epsilon}}
+
             \sigma^2_t = \alpha * \sigma^2_{t-1} + \alpha * (1 - \alpha) * (x_t - \mu_{t-1}) ^ 2
             \mu_t = \alpha * \mu_{t-1} + (1 - \alpha) * x_t
 

@@ -21,10 +21,12 @@ class Norm(Layer):
     """
     Custom backprop normalizer implementation of the 
     [Online Normalization Algorithm](https://arxiv.org/abs/1905.05894) 
-    Note:
+
+Note:
         Implemented with custom gradients, using the @tf.custom_gradient
         decorator which requires tf.__version__ >= 1.7
-    Arguments:
+
+Arguments:
         alpha_fwd: the decay factor to be used in fprop to update statistics.
             Default: 0.999
         alpha_bkw: the decay factor to be used in bprop to control the

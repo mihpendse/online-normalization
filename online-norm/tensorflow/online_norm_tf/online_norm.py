@@ -406,9 +406,11 @@ class Norm(Layer):
     def call(self, inputs, training=None):
         """
         Call function will be called by __call__
+
         Arguments:
             inputs: activations into the layer
             training: Boolean to set training or inference mode
+
         Returns:
             normalized activations with multiplicative scale and additive bias
             corrections
@@ -496,12 +498,14 @@ class NormBatched(Layer):
         trainable: Boolean, if `True` also add variables to the graph
             collection `GraphKeys.TRAINABLE_VARIABLES`
             (see tf.Variable).  (Default: True)
+
     Input shape:
       Arbitrary. Use the keyword argument `input_shape` (tuple of integers,
                  does not include the samples axis) when using this layer as
                  the first layer in a model.
     Output shape:
         Same shape as input.
+
     References:
         - [Online Normalization for Training Neural Networks](https://arxiv.org/abs/1905.05894)
     """
@@ -747,6 +751,7 @@ class NormBatched(Layer):
             Useful for GPU acceleration of streaming control layer.
             Used in mu, var, and u_ctrl updates
             Note: v_ctrl needs separate controller
+
             Arguments
                 stat_prev: previous time steps statistics
                 stat_curr: this time steps statistics
@@ -754,6 +759,7 @@ class NormBatched(Layer):
                 momentum: the momentum of the system
                 momentum_pow: momentum ** range(b_size - 1, -1, -1)
                 momentum_batch: momentum ** b_size
+
             Returns:
                 stream_t1: 1 time step stale estimates of statistics
                            one for each example in batch
@@ -778,10 +784,12 @@ class NormBatched(Layer):
             """
             Helper function to convolve along 2b dimension with a b length
             vector of 1's
+
             Arguments:
                 input: input of shape (b, 2b, c)
                 b: b_size
                 c: number of features
+
             Returns
                 d: deltas convolved along the 2b dimension with a 1 filter
             """

@@ -742,6 +742,7 @@ class NormBatched(Layer):
         speed up computation with batched training we linearize the computation
         along the batch dimension and use convolutions in place of loops to
         distribute the computation across compute fabric.
+
         forward is decorated with @tf.custom_gradient and has its backward pass
         defined in backward.
 
